@@ -5,10 +5,11 @@ const mapInfo = document.getElementById('mapInfo');
 
 let activeCategory = 'all';
 let allCategories = [];
+let allServices = [];
 
 async function fetchJson(path) {
   const res = await fetch(path);
-  if (!res.ok) throw new Error(`Failed API call: ${path}`);
+  if (!res.ok) throw new Error(`Failed to load data: ${path}`);
   return res.json();
 }
 
@@ -56,22 +57,31 @@ function renderServices(services) {
   });
 }
 
-async function loadServices() {
-  const query = searchInput.value.trim();
-  const params = new URLSearchParams({ category: activeCategory, q: query });
-  const services = await fetchJson(`/api/services?${params.toString()}`);
-  renderServices(services);
+function loadServices() {
+  const query = searchInput.value.trim().toLowerCase();
+  const filtered = allServices.filter((service) => {
+    const categoryMatch = activeCategory === 'all' || service.category === activeCategory;
+    const searchMatch = !query
+      || service.name.toLowerCase().includes(query)
+      || service.city.toLowerCase().includes(query)
+      || service.country.toLowerCase().includes(query)
+      || service.description.toLowerCase().includes(query);
+    return categoryMatch && searchMatch;
+  });
+
+  renderServices(filtered);
 }
 
 async function init() {
-  allCategories = await fetchJson('/api/categories');
+  [allCategories, allServices] = await Promise.all([
+    fetchJson('data/categories.json'),
+    fetchJson('data/services.json'),
+  ]);
   renderCategories(allCategories);
-  await loadServices();
+  loadServices();
 }
 
-searchInput.addEventListener('input', () => {
-  loadServices();
-});
+searchInput.addEventListener('input', loadServices);
 
 init().catch((err) => {
   serviceGrid.innerHTML = `<div class="empty">Error loading TripPilot: ${err.message}</div>`;
