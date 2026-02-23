@@ -2,7 +2,6 @@ const categoryNav = document.getElementById('categoryNav');
 const serviceGrid = document.getElementById('serviceGrid');
 const searchInput = document.getElementById('searchInput');
 const mapInfo = document.getElementById('mapInfo');
-const pinLayer = document.getElementById('pinLayer');
 const mapLegend = document.getElementById('mapLegend');
 
 const CATEGORY_VISUALS = {
@@ -17,6 +16,8 @@ let activeCategory = 'all';
 let allCategories = [];
 let allServices = [];
 let selectedServiceId = null;
+let map = null;
+let markerLayer = null;
 
 async function fetchJson(path) {
   const res = await fetch(path);
@@ -26,12 +27,6 @@ async function fetchJson(path) {
 
 function getVisual(categoryId) {
   return CATEGORY_VISUALS[categoryId] || { color: '#9eb6eb', shape: 'circle' };
-}
-
-function projectToMap(lat, lng) {
-  const x = ((lng + 180) / 360) * 100;
-  const y = ((90 - lat) / 180) * 100;
-  return { x, y };
 }
 
 function updateMapInfo(service) {
@@ -65,35 +60,58 @@ function renderLegend(categories) {
   }).join('');
 }
 
+function createMap() {
+  map = L.map('worldMap', {
+    worldCopyJump: true,
+    minZoom: 2,
+  }).setView([22, 10], 2);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(map);
+
+  markerLayer = L.layerGroup().addTo(map);
+}
+
+function createServiceIcon(service, isActive) {
+  const visual = getVisual(service.category);
+  const classes = `map-pin-marker shape-${visual.shape}${isActive ? ' active' : ''}`;
+  const styles = visual.shape === 'triangle'
+    ? `border-bottom-color:${visual.color};`
+    : `background:${visual.color}; border-color:#ffffff;`;
+
+  return L.divIcon({
+    className: '',
+    html: `<span class="${classes}" style="${styles}"></span>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+  });
+}
+
 function renderMapPins(services) {
-  pinLayer.innerHTML = '';
+  markerLayer.clearLayers();
 
   services.forEach((service) => {
-    const { x, y } = projectToMap(service.lat, service.lng);
-    const visual = getVisual(service.category);
-    const marker = document.createElement('button');
-    marker.type = 'button';
-    marker.className = `map-pin shape-${visual.shape} ${selectedServiceId === service.id ? 'active' : ''}`;
-    marker.style.left = `${x}%`;
-    marker.style.top = `${y}%`;
+    const marker = L.marker([service.lat, service.lng], {
+      icon: createServiceIcon(service, selectedServiceId === service.id),
+      title: `${service.name} (${service.city}, ${service.country})`,
+    });
 
-    if (visual.shape === 'triangle') {
-      marker.style.borderBottomColor = visual.color;
-      marker.style.borderLeftColor = 'transparent';
-      marker.style.borderRightColor = 'transparent';
-    } else {
-      marker.style.background = visual.color;
-      marker.style.borderColor = '#ffffff';
-    }
-
-    marker.title = `${service.name} (${service.city}, ${service.country})`;
-    marker.setAttribute('aria-label', marker.title);
-    marker.addEventListener('click', () => {
+    marker.on('click', () => {
       selectedServiceId = service.id;
       updateMapInfo(service);
       renderMapPins(services);
     });
-    pinLayer.appendChild(marker);
+
+    markerLayer.addLayer(marker);
+  });
+}
+
+function focusServiceOnMap(service) {
+  if (!service || !map) return;
+  map.flyTo([service.lat, service.lng], Math.max(map.getZoom(), 5), {
+    duration: 0.8,
   });
 }
 
@@ -138,6 +156,7 @@ function renderServices(services) {
       const selected = services.find((item) => String(item.id) === button.dataset.id);
       selectedServiceId = selected.id;
       updateMapInfo(selected);
+      focusServiceOnMap(selected);
       renderMapPins(services);
     });
   });
@@ -163,6 +182,7 @@ function loadServices() {
 }
 
 async function init() {
+  createMap();
   [allCategories, allServices] = await Promise.all([
     fetchJson('data/categories.json'),
     fetchJson('data/services.json'),
