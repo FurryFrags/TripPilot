@@ -21,4 +21,4 @@ This project is fully static and can run directly on GitHub Pages.
 
 ## Run locally (optional)
 
-You can open `static/index.html` directly in a browser, or serve files with any static file server.
+You can open `index.html` from the repository root (it redirects automatically), open `static/index.html` directly, or serve files with any static file server.
