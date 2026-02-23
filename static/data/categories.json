@@ -1,0 +1,8 @@
+[
+  {"id": "all", "name": "All Services", "icon": "🌍"},
+  {"id": "transport", "name": "Transport", "icon": "🚌"},
+  {"id": "hotels", "name": "Hotels & Resorts", "icon": "🏨"},
+  {"id": "food", "name": "Food & Dining", "icon": "🍜"},
+  {"id": "tours", "name": "Guided Tours", "icon": "🧭"},
+  {"id": "activities", "name": "Activities", "icon": "🎢"}
+]

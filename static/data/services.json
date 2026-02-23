@@ -1,0 +1,74 @@
+[
+  {
+    "id": 1,
+    "category": "transport",
+    "name": "Tokyo Metro Tourist Pass",
+    "city": "Tokyo",
+    "country": "Japan",
+    "rating": 4.8,
+    "price": "$8/day",
+    "description": "Unlimited subway rides for top attractions across Tokyo districts.",
+    "lat": 35.6762,
+    "lng": 139.6503
+  },
+  {
+    "id": 2,
+    "category": "hotels",
+    "name": "Santorini Cliff Resort",
+    "city": "Santorini",
+    "country": "Greece",
+    "rating": 4.9,
+    "price": "$220/night",
+    "description": "Caldera-view suites with breakfast and airport transfer included.",
+    "lat": 36.3932,
+    "lng": 25.4615
+  },
+  {
+    "id": 3,
+    "category": "tours",
+    "name": "Marrakech Medina Walking Tour",
+    "city": "Marrakech",
+    "country": "Morocco",
+    "rating": 4.7,
+    "price": "$32/person",
+    "description": "Local guide tour through souks, palaces, and hidden riad courtyards.",
+    "lat": 31.6295,
+    "lng": -7.9811
+  },
+  {
+    "id": 4,
+    "category": "activities",
+    "name": "Queenstown Bungy Combo",
+    "city": "Queenstown",
+    "country": "New Zealand",
+    "rating": 4.9,
+    "price": "$145/person",
+    "description": "Three-jump adventure package with photo and video add-ons.",
+    "lat": -45.0312,
+    "lng": 168.6626
+  },
+  {
+    "id": 5,
+    "category": "food",
+    "name": "Mexico City Taco Trail",
+    "city": "Mexico City",
+    "country": "Mexico",
+    "rating": 4.6,
+    "price": "$40/person",
+    "description": "Evening street food crawl with expert local chef recommendations.",
+    "lat": 19.4326,
+    "lng": -99.1332
+  },
+  {
+    "id": 6,
+    "category": "transport",
+    "name": "Paris Museum + River Shuttle",
+    "city": "Paris",
+    "country": "France",
+    "rating": 4.5,
+    "price": "$29/day",
+    "description": "Hop-on hop-off river shuttle bundled with museum district transit.",
+    "lat": 48.8566,
+    "lng": 2.3522
+  }
+]

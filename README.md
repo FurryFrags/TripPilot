@@ -2,24 +2,23 @@
 
 TripPilot is a tourism-focused discovery service inspired by Klook/Google Maps patterns.
 It provides a sidebar of recommended categories (transport, hotels/resorts, food, tours, activities)
-and API-backed service listings across global destinations.
+with static data-driven service listings across global destinations.
 
 ## Features
 
 - Sidebar category navigation with instant filtering.
 - Search across service name, city, country, and description.
-- API endpoints for categories and service recommendations.
+- Static JSON-backed category and service listings (GitHub Pages friendly).
 - "World Explorer" panel showing location coordinates for selected services.
 
-## Run locally
+## Run on GitHub Pages
 
-```bash
-python3 server.py
-```
+This project is fully static and can run directly on GitHub Pages.
 
-Then open `http://localhost:8000`.
+1. Push the repository to GitHub.
+2. In repository settings, enable **Pages** and set source to the branch/folder containing `static/` files (or publish from root if you serve `static/index.html` as your entry).
+3. Open your Pages URL — no backend server or install commands are required.
 
-## API endpoints
+## Run locally (optional)
 
-- `GET /api/categories`
-- `GET /api/services?category=<id>&q=<search>`
+You can open `static/index.html` directly in a browser, or serve files with any static file server.
