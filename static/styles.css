@@ -81,51 +81,28 @@ body {
   margin-top: .85rem;
   border-radius: .8rem;
   border: 1px solid rgba(255,255,255,.16);
-  background: linear-gradient(180deg, #132445 0%, #1b315f 100%);
-  position: relative;
   overflow: hidden;
-  aspect-ratio: 2 / 1;
+  min-height: 420px;
 }
 
-.world-map {
-  width: 100%;
-  height: 100%;
-  display: block;
+.map-canvas-wrap .leaflet-control-zoom a {
+  color: #16233a;
 }
 
-.world-map path {
-  fill: rgba(166, 196, 255, 0.35);
-  stroke: rgba(215, 230, 255, 0.35);
-  stroke-width: 2;
-}
-
-.pin-layer {
-  position: absolute;
-  inset: 0;
-}
-
-.map-pin {
-  position: absolute;
+.map-pin-marker {
   width: 18px;
   height: 18px;
   border: 2px solid #ffffff;
   box-shadow: 0 0 0 2px rgba(10, 21, 43, .32);
-  transform: translate(-50%, -50%);
-  cursor: pointer;
 }
 
-.map-pin:hover,
-.map-pin.active {
-  transform: translate(-50%, -50%) scale(1.15);
+.map-pin-marker.shape-circle { border-radius: 999px; }
+.map-pin-marker.shape-square { border-radius: .2rem; }
+.map-pin-marker.shape-diamond { transform: rotate(45deg); border-radius: .2rem; }
+.map-pin-marker.shape-star {
+  clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 93%, 50% 72%, 21% 93%, 32% 57%, 2% 35%, 39% 35%);
 }
-
-.shape-circle { border-radius: 999px; }
-.shape-square { border-radius: .2rem; }
-.shape-diamond { transform: translate(-50%, -50%) rotate(45deg); border-radius: .2rem; }
-.shape-diamond:hover,
-.shape-diamond.active { transform: translate(-50%, -50%) rotate(45deg) scale(1.15); }
-
-.shape-triangle {
+.map-pin-marker.shape-triangle {
   width: 0;
   height: 0;
   border-left: 10px solid transparent;
@@ -133,12 +110,18 @@ body {
   border-bottom: 18px solid;
   border-top: 0;
   border-radius: 0;
-  background: transparent !important;
   box-shadow: none;
+  background: transparent !important;
 }
 
-.shape-star {
-  clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 93%, 50% 72%, 21% 93%, 32% 57%, 2% 35%, 39% 35%);
+.map-pin-marker.active {
+  transform: scale(1.15);
+}
+.map-pin-marker.shape-diamond.active {
+  transform: rotate(45deg) scale(1.15);
+}
+.map-pin-marker.shape-triangle.active {
+  filter: drop-shadow(0 0 6px rgba(255,255,255,.8));
 }
 
 .map-legend {
