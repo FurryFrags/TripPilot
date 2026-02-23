@@ -22,7 +22,19 @@
       <section class="content">
         <div class="map-panel">
           <h2>World Explorer View</h2>
-          <p>Select a service to view its location details.</p>
+          <p>Global map with live pins for all services currently in view.</p>
+          <div class="map-canvas-wrap">
+            <svg class="world-map" viewBox="0 0 1000 500" role="img" aria-label="Stylized world map">
+              <path d="M98 146l38-49 58-26 86 8 56 36 29 43-25 46-81 30-88-6-57-26z"/>
+              <path d="M290 265l32 19 22 53-13 77-39 39-30-21-7-84 7-60z"/>
+              <path d="M423 128l78-45 120-9 114 16 94 48 47 66-11 58-76 44-72-5-39 16-46 48-74 20-93-17-53-52-18-79z"/>
+              <path d="M644 319l68 6 31 37-18 48-63 23-44-18-8-53z"/>
+              <path d="M818 334l86 9 47 28-13 47-95 23-52-29-4-52z"/>
+              <path d="M918 124l45-9 21 18-11 34-47 12-23-20z"/>
+            </svg>
+            <div id="pinLayer" class="pin-layer" aria-live="polite"></div>
+          </div>
+          <div id="mapLegend" class="map-legend" aria-label="Map legend"></div>
           <div id="mapInfo" class="map-info">No service selected.</div>
         </div>
         <div id="serviceGrid" class="service-grid"></div>
