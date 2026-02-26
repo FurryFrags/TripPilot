@@ -60,14 +60,23 @@ function renderLegend(categories) {
   }).join('');
 }
 
+const MAP_REQUEST_BOUNDS = L.latLngBounds(
+  L.latLng(30, -12),
+  L.latLng(60, 146)
+);
+
 function createMap() {
   map = L.map('worldMap', {
-    worldCopyJump: true,
-    minZoom: 2,
-  }).setView([22, 10], 2);
+    worldCopyJump: false,
+    minZoom: 3,
+    maxBounds: MAP_REQUEST_BOUNDS,
+    maxBoundsViscosity: 1.0,
+  }).setView([44, 55], 3);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 18,
+    bounds: MAP_REQUEST_BOUNDS,
+    noWrap: true,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
 
