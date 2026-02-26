@@ -1,15 +1,14 @@
 # TripPilot
 
-TripPilot is a tourism-focused discovery service inspired by Klook/Google Maps patterns.
-It provides a sidebar of recommended categories (transport, hotels/resorts, food, tours, activities)
-with static data-driven service listings across global destinations.
+TripPilot is a tourism-focused planner that generates country tours from live web data.
+It can pull attractions from public internet sources and use a free no-key AI model to produce a day-by-day itinerary with map pins.
 
 ## Features
 
-- Sidebar category navigation with instant filtering.
-- Search across service name, city, country, and description.
-- Static JSON-backed category and service listings (GitHub Pages friendly).
-- "World Explorer" panel showing location coordinates for selected services.
+- Country-based tour generation without API keys.
+- Live POI discovery from public web endpoints.
+- AI-generated day-by-day itinerary suggestions.
+- Leaflet map pins for discovered places.
 
 ## Run on GitHub Pages
 
