@@ -3,6 +3,8 @@ const serviceGrid = document.getElementById('serviceGrid');
 const searchInput = document.getElementById('searchInput');
 const mapInfo = document.getElementById('mapInfo');
 const mapLegend = document.getElementById('mapLegend');
+const viewEuropeBtn = document.getElementById('viewEuropeBtn');
+const viewJapanKoreaBtn = document.getElementById('viewJapanKoreaBtn');
 
 const CATEGORY_VISUALS = {
   transport: { color: '#4dabff', shape: 'circle' },
@@ -60,34 +62,22 @@ function renderLegend(categories) {
   }).join('');
 }
 
-const ALLOWED_TILE_REGIONS = [
-  L.latLngBounds(L.latLng(34, -25), L.latLng(72, 45)), // Europe
-  L.latLngBounds(L.latLng(33, 124), L.latLng(39.5, 132)), // South Korea
-  L.latLngBounds(L.latLng(24, 122), L.latLng(46.5, 149)), // Japan
-];
-
+const MAP_PADDING = [50, 50];
+const EUROPE_BOUNDS = L.latLngBounds(L.latLng(33, -28), L.latLng(73.5, 48));
+const JAPAN_KOREA_BOUNDS = L.latLngBounds(L.latLng(23, 121), L.latLng(47.5, 149.5));
 const MAP_REQUEST_BOUNDS = L.latLngBounds(
-  L.latLng(24, -25),
-  L.latLng(72, 149),
+  L.latLng(20, -35),
+  L.latLng(76, 155),
 );
 
-const EMPTY_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
-
-const RegionLimitedTileLayer = L.TileLayer.extend({
-  getTileUrl(coords) {
-    const tileCenter = this._map.unproject(
-      L.point(coords.x * 256 + 128, coords.y * 256 + 128),
-      coords.z,
-    );
-
-    const isAllowedTile = ALLOWED_TILE_REGIONS.some((regionBounds) => regionBounds.contains(tileCenter));
-    if (!isAllowedTile) {
-      return EMPTY_TILE;
-    }
-
-    return L.TileLayer.prototype.getTileUrl.call(this, coords);
-  },
-});
+function fitRegion(bounds) {
+  if (!map) return;
+  map.fitBounds(bounds, {
+    padding: MAP_PADDING,
+    animate: true,
+    duration: 0.8,
+  });
+}
 
 function createMap() {
   map = L.map('worldMap', {
@@ -97,9 +87,8 @@ function createMap() {
     maxBoundsViscosity: 1.0,
   }).setView([44, 55], 3);
 
-  new RegionLimitedTileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 18,
-    bounds: MAP_REQUEST_BOUNDS,
     noWrap: true,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
@@ -226,6 +215,8 @@ async function init() {
 }
 
 searchInput.addEventListener('input', loadServices);
+viewEuropeBtn.addEventListener('click', () => fitRegion(EUROPE_BOUNDS));
+viewJapanKoreaBtn.addEventListener('click', () => fitRegion(JAPAN_KOREA_BOUNDS));
 
 init().catch((err) => {
   serviceGrid.innerHTML = `<div class="empty">Error loading TripPilot: ${err.message}</div>`;

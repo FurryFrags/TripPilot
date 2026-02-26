@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TripPilot • Global Tourism Services</title>
-    <link rel="icon" type="image/png" href="/assets/Logo.png" />
+    <link rel="icon" type="image/png" href="../assets/Logo.png" />
     <link
       rel="stylesheet"
       href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -15,9 +15,9 @@
   </head>
   <body>
     <header class="topbar">
-      <img class="topbar-banner" src="/assets/Banner.png" alt="TripPilot banner" />
+      <img class="topbar-banner" src="../assets/Banner.png" alt="TripPilot banner" />
       <div class="brand-wrap">
-        <img class="brand-logo" src="/assets/Logo.png" alt="TripPilot logo" />
+        <img class="brand-logo" src="../assets/Logo.png" alt="TripPilot logo" />
         <div>
           <h1>TripPilot</h1>
           <p>Discover bookable tourism services in Europe, South Korea, and Japan.</p>
@@ -36,6 +36,10 @@
         <div class="map-panel">
           <h2>World Explorer View</h2>
           <p>Global map with live pins for all services currently in view.</p>
+          <div class="map-region-controls" aria-label="Map region controls">
+            <button id="viewEuropeBtn" type="button">View Europe</button>
+            <button id="viewJapanKoreaBtn" type="button">View Japan &amp; South Korea</button>
+          </div>
           <div id="worldMap" class="map-canvas-wrap" aria-label="Interactive world map"></div>
           <div id="mapLegend" class="map-legend" aria-label="Map legend"></div>
           <div id="mapInfo" class="map-info">No service selected.</div>
