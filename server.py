@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 HOST = "0.0.0.0"
 PORT = 8000
 STATIC_DIR = Path(__file__).parent / "static"
+ALLOWED_COUNTRY_CODES = {"JP", "KR", "AU", "SG", "VN"}
 
 CATEGORIES = [
     {"id": "all", "name": "All Services", "icon": "🌍"},
@@ -97,6 +98,33 @@ SERVICES = [
 
 
 class TripPilotHandler(BaseHTTPRequestHandler):
+    def _request_country_code(self) -> str | None:
+        for header_name in ("CF-IPCountry", "X-Country-Code", "X-Geo-Country"):
+            value = self.headers.get(header_name)
+            if value:
+                return value.strip().upper()
+        return None
+
+    def _is_request_allowed(self) -> bool:
+        country_code = self._request_country_code()
+        if not country_code:
+            return False
+
+        return country_code in ALLOWED_COUNTRY_CODES
+
+    def _send_region_blocked(self) -> None:
+        message = (
+            "<html><body><h1>403 Forbidden</h1>"
+            "<p>TripPilot is currently available only in Japan, South Korea, Australia, Singapore, and Vietnam.</p>"
+            "</body></html>"
+        ).encode("utf-8")
+
+        self.send_response(HTTPStatus.FORBIDDEN)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(message)))
+        self.end_headers()
+        self.wfile.write(message)
+
     def _send_json(self, payload: dict | list, status: HTTPStatus = HTTPStatus.OK) -> None:
         data = json.dumps(payload).encode("utf-8")
         self.send_response(status)
@@ -126,6 +154,10 @@ class TripPilotHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def do_GET(self) -> None:  # noqa: N802
+        if not self._is_request_allowed():
+            self._send_region_blocked()
+            return
+
         parsed = urlparse(self.path)
 
         if parsed.path == "/api/categories":
