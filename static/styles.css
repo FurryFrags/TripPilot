@@ -18,9 +18,29 @@ body {
 }
 
 .topbar {
-  padding: 1.25rem 2rem;
+  padding: 0;
   border-bottom: 1px solid #dbe6ff;
   background: var(--panel);
+}
+
+.topbar-banner {
+  width: 100%;
+  height: clamp(100px, 16vw, 220px);
+  object-fit: cover;
+  display: block;
+}
+
+.brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: .9rem;
+  padding: 1rem 2rem 1.15rem;
+}
+
+.brand-logo {
+  width: clamp(46px, 6vw, 74px);
+  height: auto;
+  object-fit: contain;
 }
 
 .topbar h1 { margin: 0; font-size: 1.8rem; }
@@ -218,4 +238,7 @@ body {
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; }
   .sidebar { border-right: 0; border-bottom: 1px solid #dbe6ff; }
+  .brand-wrap {
+    padding: .9rem 1rem 1rem;
+  }
 }
