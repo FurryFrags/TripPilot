@@ -1,223 +1,91 @@
-const categoryNav = document.getElementById('categoryNav');
-const serviceGrid = document.getElementById('serviceGrid');
-const searchInput = document.getElementById('searchInput');
+const countryInput = document.getElementById('countryInput');
+const generateTourBtn = document.getElementById('generateTourBtn');
+const itinerary = document.getElementById('itinerary');
 const mapInfo = document.getElementById('mapInfo');
-const mapLegend = document.getElementById('mapLegend');
-const viewEuropeBtn = document.getElementById('viewEuropeBtn');
-const viewJapanKoreaBtn = document.getElementById('viewJapanKoreaBtn');
+const statusText = document.getElementById('statusText');
 
-const CATEGORY_VISUALS = {
-  transport: { color: '#4dabff', shape: 'circle' },
-  hotels: { color: '#c792ff', shape: 'square' },
-  food: { color: '#ff9f43', shape: 'diamond' },
-  tours: { color: '#4dd4ac', shape: 'triangle' },
-  activities: { color: '#ff6b8a', shape: 'star' },
-};
-
-let activeCategory = 'all';
-let allCategories = [];
-let allServices = [];
-let selectedServiceId = null;
-let map = null;
-let markerLayer = null;
-
-async function fetchJson(path) {
-  const res = await fetch(path);
-  if (!res.ok) throw new Error(`Failed to load data: ${path}`);
-  return res.json();
-}
-
-function getVisual(categoryId) {
-  return CATEGORY_VISUALS[categoryId] || { color: '#9eb6eb', shape: 'circle' };
-}
-
-function updateMapInfo(service) {
-  if (!service) {
-    mapInfo.textContent = 'No service selected.';
-    return;
-  }
-
-  mapInfo.innerHTML = `
-    <strong>${service.name}</strong><br/>
-    📍 ${service.city}, ${service.country}<br/>
-    Category: ${service.category}<br/>
-    Coordinates: ${service.lat.toFixed(4)}, ${service.lng.toFixed(4)}
-  `;
-}
-
-function renderLegend(categories) {
-  const visibleCategories = categories.filter((category) => category.id !== 'all');
-  mapLegend.innerHTML = visibleCategories.map((category) => {
-    const visual = getVisual(category.id);
-    const markerStyles = visual.shape === 'triangle'
-      ? `border-bottom-color:${visual.color};`
-      : `background:${visual.color}; border-color:${visual.color};`;
-
-    return `
-      <div class="legend-item">
-        <span class="legend-pin shape-${visual.shape}" style="${markerStyles}"></span>
-        <span>${category.icon} ${category.name}</span>
-      </div>
-    `;
-  }).join('');
-}
-
-const MAP_PADDING = [50, 50];
-const EUROPE_BOUNDS = L.latLngBounds(L.latLng(33, -28), L.latLng(73.5, 48));
-const JAPAN_KOREA_BOUNDS = L.latLngBounds(L.latLng(23, 121), L.latLng(47.5, 149.5));
-const MAP_REQUEST_BOUNDS = L.latLngBounds(
-  L.latLng(20, -35),
-  L.latLng(76, 155),
-);
-
-function fitRegion(bounds) {
-  if (!map) return;
-  map.fitBounds(bounds, {
-    padding: MAP_PADDING,
-    animate: true,
-    duration: 0.8,
-  });
-}
+let map;
+let markerLayer;
 
 function createMap() {
   map = L.map('worldMap', {
-    worldCopyJump: false,
-    minZoom: 3,
-    maxBounds: MAP_REQUEST_BOUNDS,
-    maxBoundsViscosity: 1.0,
-  }).setView([44, 55], 3);
+    worldCopyJump: true,
+    minZoom: 2,
+  }).setView([20, 0], 2);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 18,
-    noWrap: true,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
 
   markerLayer = L.layerGroup().addTo(map);
 }
 
-function createServiceIcon(service, isActive) {
-  const visual = getVisual(service.category);
-  const classes = `map-pin-marker shape-${visual.shape}${isActive ? ' active' : ''}`;
-  const styles = visual.shape === 'triangle'
-    ? `border-bottom-color:${visual.color};`
-    : `background:${visual.color}; border-color:#ffffff;`;
-
-  return L.divIcon({
-    className: 'service-marker-icon',
-    html: `<div class="${classes}" style="${styles}"></div>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-  });
-}
-
-function renderMapPins(services) {
-  markerLayer.clearLayers();
-
-  services.forEach((service) => {
-    const marker = L.marker([service.lat, service.lng], {
-      icon: createServiceIcon(service, selectedServiceId === service.id),
-      title: `${service.name} (${service.city}, ${service.country})`,
-    });
-
-    marker.on('click', () => {
-      selectedServiceId = service.id;
-      updateMapInfo(service);
-      renderMapPins(services);
-    });
-
-    markerLayer.addLayer(marker);
-  });
-}
-
-function focusServiceOnMap(service) {
-  if (!service || !map) return;
-  map.flyTo([service.lat, service.lng], Math.max(map.getZoom(), 5), {
-    duration: 0.8,
-  });
-}
-
-function renderCategories(categories) {
-  categoryNav.innerHTML = '';
-  categories.forEach((category) => {
-    const button = document.createElement('button');
-    button.className = `category-btn ${activeCategory === category.id ? 'active' : ''}`;
-    button.textContent = `${category.icon} ${category.name}`;
-    button.onclick = () => {
-      activeCategory = category.id;
-      renderCategories(allCategories);
-      loadServices();
-    };
-    categoryNav.appendChild(button);
-  });
-}
-
-function renderServices(services) {
-  renderMapPins(services);
-
-  const selectedServiceInView = services.find((service) => service.id === selectedServiceId);
-  updateMapInfo(selectedServiceInView || null);
-
-  if (!services.length) {
-    serviceGrid.innerHTML = '<div class="empty">No services found. Try another category or search term.</div>';
+function updateMapInfo(poi) {
+  if (!poi) {
+    mapInfo.textContent = 'No place selected.';
     return;
   }
 
-  serviceGrid.innerHTML = services.map((service) => `
+  mapInfo.innerHTML = `<strong>${poi.name}</strong><br/>📍 ${poi.country}<br/>${poi.description}<br/><a href="${poi.source}" target="_blank" rel="noreferrer">Source</a>`;
+}
+
+function renderMapPois(pois) {
+  markerLayer.clearLayers();
+  const bounds = [];
+
+  pois.forEach((poi) => {
+    const marker = L.marker([poi.lat, poi.lng], { title: poi.name });
+    marker.on('click', () => updateMapInfo(poi));
+    markerLayer.addLayer(marker);
+    bounds.push([poi.lat, poi.lng]);
+  });
+
+  if (bounds.length) {
+    map.fitBounds(bounds, { padding: [40, 40], animate: true });
+  }
+}
+
+function renderItinerary(country, days, sourceLabel) {
+  if (!days.length) {
+    itinerary.innerHTML = '<div class="empty">No itinerary generated from live data yet. Try another country.</div>';
+    return;
+  }
+
+  itinerary.innerHTML = days.map((day) => `
     <article class="service-card">
-      <h3>${service.name}</h3>
-      <p><strong>${service.city}, ${service.country}</strong></p>
-      <p>${service.description}</p>
-      <p>⭐ ${service.rating} • ${service.price}</p>
-      <button data-id="${service.id}">View on map</button>
+      <h3>Day ${day.day}: ${day.theme}</h3>
+      <p><strong>Stops:</strong> ${day.stops.join(' → ')}</p>
+      <p>${day.notes}</p>
+      <p>Source engine: ${sourceLabel}</p>
     </article>
   `).join('');
 
-  serviceGrid.querySelectorAll('button').forEach((button) => {
-    button.addEventListener('click', () => {
-      const selected = services.find((item) => String(item.id) === button.dataset.id);
-      selectedServiceId = selected.id;
-      updateMapInfo(selected);
-      focusServiceOnMap(selected);
-      renderMapPins(services);
-    });
-  });
+  statusText.textContent = `Generated ${days.length}-day ${country} tour.`;
 }
 
-function loadServices() {
-  const query = searchInput.value.trim().toLowerCase();
-  const filtered = allServices.filter((service) => {
-    const categoryMatch = activeCategory === 'all' || service.category === activeCategory;
-    const searchMatch = !query
-      || service.name.toLowerCase().includes(query)
-      || service.city.toLowerCase().includes(query)
-      || service.country.toLowerCase().includes(query)
-      || service.description.toLowerCase().includes(query);
-    return categoryMatch && searchMatch;
-  });
+async function generateTour() {
+  const country = countryInput.value.trim();
+  if (!country) return;
 
-  if (selectedServiceId && !filtered.some((service) => service.id === selectedServiceId)) {
-    selectedServiceId = null;
+  statusText.textContent = `Generating live AI tour for ${country}...`;
+  itinerary.innerHTML = '<div class="empty">Thinking...</div>';
+  updateMapInfo(null);
+
+  try {
+    const res = await fetch(`/api/ai-tour?country=${encodeURIComponent(country)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to generate tour');
+
+    renderMapPois(data.pois || []);
+    renderItinerary(data.country, data.days || [], data.source || 'live web data');
+    statusText.textContent = `Done: ${data.country} plan created from live internet sources.`;
+  } catch (err) {
+    itinerary.innerHTML = `<div class="empty">${err.message}</div>`;
+    statusText.textContent = 'Unable to generate a live AI tour right now.';
   }
-
-  renderServices(filtered);
 }
 
-async function init() {
-  createMap();
-  [allCategories, allServices] = await Promise.all([
-    fetchJson('data/categories.json'),
-    fetchJson('data/services.json'),
-  ]);
-  renderCategories(allCategories);
-  renderLegend(allCategories);
-  loadServices();
-}
-
-searchInput.addEventListener('input', loadServices);
-viewEuropeBtn.addEventListener('click', () => fitRegion(EUROPE_BOUNDS));
-viewJapanKoreaBtn.addEventListener('click', () => fitRegion(JAPAN_KOREA_BOUNDS));
-
-init().catch((err) => {
-  serviceGrid.innerHTML = `<div class="empty">Error loading TripPilot: ${err.message}</div>`;
-});
+createMap();
+generateTourBtn.addEventListener('click', generateTour);
+generateTour();

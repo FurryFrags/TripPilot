@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import ssl
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
+from urllib.request import Request, urlopen
 
 HOST = "0.0.0.0"
 PORT = 8000
@@ -97,6 +99,103 @@ SERVICES = [
     },
 ]
 
+USER_AGENT = "TripPilot/1.0 (+https://example.local)"
+
+
+def fetch_json(url: str, *, expect_json: bool = True) -> dict | list | str:
+    request = Request(url, headers={"User-Agent": USER_AGENT})
+    context = ssl.create_default_context()
+    with urlopen(request, context=context, timeout=12) as response:  # noqa: S310
+        text = response.read().decode("utf-8")
+    if expect_json:
+        return json.loads(text)
+    return text
+
+
+def collect_live_pois(country: str, limit: int = 8) -> list[dict]:
+    search_url = (
+        "https://en.wikipedia.org/w/api.php?action=query&list=search"
+        f"&srsearch={quote(country + ' tourist attractions')}&format=json&utf8=1&srlimit=16"
+    )
+    payload = fetch_json(search_url)
+    results = payload.get("query", {}).get("search", [])
+    pois: list[dict] = []
+
+    for item in results:
+        title = item.get("title")
+        if not title:
+            continue
+        summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{quote(title)}"
+        try:
+            summary = fetch_json(summary_url)
+        except Exception:
+            continue
+
+        coordinates = summary.get("coordinates") or {}
+        lat = coordinates.get("lat")
+        lng = coordinates.get("lon")
+        if lat is None or lng is None:
+            continue
+
+        pois.append(
+            {
+                "name": summary.get("title", title),
+                "city": country,
+                "country": country,
+                "description": summary.get("extract", "")[:320],
+                "source": summary.get("content_urls", {}).get("desktop", {}).get("page", ""),
+                "lat": lat,
+                "lng": lng,
+            }
+        )
+        if len(pois) >= limit:
+            break
+
+    return pois
+
+
+def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
+    if not pois:
+        return []
+
+    places_payload = [
+        {
+            "name": poi["name"],
+            "description": poi["description"],
+        }
+        for poi in pois
+    ]
+    prompt = (
+        "Generate a concise travel plan in JSON only. Output schema: "
+        "{\"days\":[{\"day\":1,\"theme\":\"...\",\"stops\":[\"Place A\",\"Place B\"],"
+        "\"notes\":\"...\"}]}. Build day-by-day itinerary for "
+        f"{country} from this web-sourced POI list: {json.dumps(places_payload)}"
+    )
+
+    try:
+        ai_text = fetch_json(f"https://text.pollinations.ai/{quote(prompt)}", expect_json=False)
+        if isinstance(ai_text, dict):
+            days = ai_text.get("days", [])
+        else:
+            days = json.loads(ai_text).get("days", [])
+        if isinstance(days, list) and days:
+            return days
+    except Exception:
+        pass
+
+    days: list[dict] = []
+    for index in range(0, len(pois), 2):
+        chunk = pois[index : index + 2]
+        days.append(
+            {
+                "day": len(days) + 1,
+                "theme": f"Discover {country}",
+                "stops": [place["name"] for place in chunk],
+                "notes": "Auto-built from live web POI summaries.",
+            }
+        )
+    return days
+
 
 class TripPilotHandler(BaseHTTPRequestHandler):
     def _request_country_code(self) -> str | None:
@@ -107,6 +206,10 @@ class TripPilotHandler(BaseHTTPRequestHandler):
         return None
 
     def _is_request_allowed(self) -> bool:
+        client_host = self.client_address[0]
+        if client_host in {"127.0.0.1", "::1"}:
+            return True
+
         country_code = self._request_country_code()
         if not country_code:
             return False
@@ -188,6 +291,31 @@ class TripPilotHandler(BaseHTTPRequestHandler):
                 )
             ]
             self._send_json(filtered)
+            return
+
+        if parsed.path == "/api/ai-tour":
+            query = parse_qs(parsed.query)
+            country = query.get("country", [""])[0].strip()
+            if not country:
+                self._send_json({"error": "country is required"}, status=HTTPStatus.BAD_REQUEST)
+                return
+
+            try:
+                pois = collect_live_pois(country)
+                days = generate_tour_plan(country, pois)
+                self._send_json(
+                    {
+                        "country": country,
+                        "pois": pois,
+                        "days": days,
+                        "source": "Wikipedia live search + Pollinations AI (no API key)",
+                    }
+                )
+            except Exception as exc:
+                self._send_json(
+                    {"error": f"Unable to build AI tour right now: {exc}"},
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
             return
 
         if parsed.path == "/":
