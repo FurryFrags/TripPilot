@@ -105,6 +105,27 @@ body {
   min-height: 420px;
 }
 
+.map-region-controls {
+  margin-top: .75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .55rem;
+}
+
+.map-region-controls button {
+  border: 1px solid #6e9cff;
+  border-radius: .6rem;
+  padding: .45rem .75rem;
+  background: #dce9ff;
+  color: #0f2448;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.map-region-controls button:hover {
+  background: #cfe0ff;
+}
+
 .map-canvas-wrap .leaflet-control-zoom a {
   color: #16233a;
 }
