@@ -74,7 +74,15 @@ async function generateTour() {
 
   try {
     const res = await fetch(`/api/ai-tour?country=${encodeURIComponent(country)}`);
-    const data = await res.json();
+    const bodyText = await res.text();
+    let data;
+
+    try {
+      data = JSON.parse(bodyText);
+    } catch {
+      throw new Error('Server returned a non-JSON response. Please try again in a moment.');
+    }
+
     if (!res.ok) throw new Error(data.error || 'Failed to generate tour');
 
     renderMapPois(data.pois || []);

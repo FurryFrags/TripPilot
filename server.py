@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import ssl
+from ipaddress import ip_address
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -207,8 +208,13 @@ class TripPilotHandler(BaseHTTPRequestHandler):
 
     def _is_request_allowed(self) -> bool:
         client_host = self.client_address[0]
-        if client_host in {"127.0.0.1", "::1"}:
-            return True
+        try:
+            client_ip = ip_address(client_host)
+            if client_ip.is_loopback or client_ip.is_private:
+                return True
+        except ValueError:
+            if client_host in {"localhost"}:
+                return True
 
         country_code = self._request_country_code()
         if not country_code:
