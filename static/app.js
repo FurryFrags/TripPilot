@@ -60,10 +60,34 @@ function renderLegend(categories) {
   }).join('');
 }
 
+const ALLOWED_TILE_REGIONS = [
+  L.latLngBounds(L.latLng(34, -25), L.latLng(72, 45)), // Europe
+  L.latLngBounds(L.latLng(33, 124), L.latLng(39.5, 132)), // South Korea
+  L.latLngBounds(L.latLng(24, 122), L.latLng(46.5, 149)), // Japan
+];
+
 const MAP_REQUEST_BOUNDS = L.latLngBounds(
-  L.latLng(30, -12),
-  L.latLng(60, 146)
+  L.latLng(24, -25),
+  L.latLng(72, 149),
 );
+
+const EMPTY_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+
+const RegionLimitedTileLayer = L.TileLayer.extend({
+  getTileUrl(coords) {
+    const tileCenter = this._map.unproject(
+      L.point(coords.x * 256 + 128, coords.y * 256 + 128),
+      coords.z,
+    );
+
+    const isAllowedTile = ALLOWED_TILE_REGIONS.some((regionBounds) => regionBounds.contains(tileCenter));
+    if (!isAllowedTile) {
+      return EMPTY_TILE;
+    }
+
+    return L.TileLayer.prototype.getTileUrl.call(this, coords);
+  },
+});
 
 function createMap() {
   map = L.map('worldMap', {
@@ -73,7 +97,7 @@ function createMap() {
     maxBoundsViscosity: 1.0,
   }).setView([44, 55], 3);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  new RegionLimitedTileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 18,
     bounds: MAP_REQUEST_BOUNDS,
     noWrap: true,

@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 HOST = "0.0.0.0"
 PORT = 8000
 STATIC_DIR = Path(__file__).parent / "static"
+ASSETS_DIR = Path(__file__).parent / "assets"
 ALLOWED_COUNTRY_CODES = {"JP", "KR", "AU", "SG", "VN"}
 
 CATEGORIES = [
@@ -145,6 +146,11 @@ class TripPilotHandler(BaseHTTPRequestHandler):
             ".css": "text/css; charset=utf-8",
             ".js": "application/javascript; charset=utf-8",
             ".json": "application/json; charset=utf-8",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".svg": "image/svg+xml",
+            ".ico": "image/x-icon",
         }.get(suffix, "application/octet-stream")
 
         self.send_response(HTTPStatus.OK)
@@ -186,6 +192,11 @@ class TripPilotHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/":
             self._serve_file(STATIC_DIR / "index.html")
+            return
+
+        if parsed.path.startswith("/assets/"):
+            safe_relative = parsed.path.removeprefix("/assets/")
+            self._serve_file(ASSETS_DIR / safe_relative)
             return
 
         safe_relative = parsed.path.lstrip("/")
