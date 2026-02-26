@@ -89,7 +89,16 @@ body {
   color: #16233a;
 }
 
+.service-marker-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .map-pin-marker {
+  display: block;
   width: 18px;
   height: 18px;
   border: 2px solid #ffffff;
@@ -105,9 +114,9 @@ body {
 .map-pin-marker.shape-triangle {
   width: 0;
   height: 0;
-  border-left: 10px solid transparent;
-  border-right: 10px solid transparent;
-  border-bottom: 18px solid;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-bottom: 16px solid;
   border-top: 0;
   border-radius: 0;
   box-shadow: none;
@@ -116,6 +125,7 @@ body {
 
 .map-pin-marker.active {
   transform: scale(1.15);
+  transform-origin: center;
 }
 .map-pin-marker.shape-diamond.active {
   transform: rotate(45deg) scale(1.15);
