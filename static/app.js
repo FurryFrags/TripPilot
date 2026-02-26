@@ -82,10 +82,10 @@ function createServiceIcon(service, isActive) {
     : `background:${visual.color}; border-color:#ffffff;`;
 
   return L.divIcon({
-    className: '',
-    html: `<span class="${classes}" style="${styles}"></span>`,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
+    className: 'service-marker-icon',
+    html: `<div class="${classes}" style="${styles}"></div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
   });
 }
 
