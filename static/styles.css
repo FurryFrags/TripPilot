@@ -126,6 +126,23 @@ body {
   margin-bottom: 1rem;
 }
 
+.map-panel label {
+  display: inline-block;
+  margin-top: .2rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.map-style-select {
+  width: 100%;
+  margin-top: .4rem;
+  padding: .62rem .7rem;
+  border-radius: .6rem;
+  border: 1px solid var(--border);
+  background: #091f43;
+  color: var(--text);
+}
+
 .map-canvas-wrap {
   margin-top: .85rem;
   border-radius: .8rem;

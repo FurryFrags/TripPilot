@@ -3,25 +3,209 @@ const generateTourBtn = document.getElementById('generateTourBtn');
 const itinerary = document.getElementById('itinerary');
 const mapInfo = document.getElementById('mapInfo');
 const statusText = document.getElementById('statusText');
+const mapStyleSelect = document.getElementById('mapStyleSelect');
+
+const BASE_VECTOR_STYLE_URL = 'https://demotiles.maplibre.org/style.json';
+const SATELLITE_TILE_URL = 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
 let map;
 let markers = [];
 let mapInitialized = false;
+let baseVectorStyleCache;
 
 function showMapUnavailableMessage() {
   statusText.textContent = 'Map assets failed to load. You can still generate an itinerary without the map.';
   mapInfo.textContent = 'Map unavailable: map assets failed to load. Place details will appear here when map support is restored.';
 }
 
-function createMap() {
+function cloneStyle(style) {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(style);
+  }
+
+  return JSON.parse(JSON.stringify(style));
+}
+
+async function getBaseVectorStyle() {
+  if (baseVectorStyleCache) {
+    return cloneStyle(baseVectorStyleCache);
+  }
+
+  const response = await fetch(BASE_VECTOR_STYLE_URL);
+  if (!response.ok) {
+    throw new Error('Unable to fetch MapLibre base style');
+  }
+
+  baseVectorStyleCache = await response.json();
+  return cloneStyle(baseVectorStyleCache);
+}
+
+function buildTerrainStyle(baseStyle) {
+  const overlays = (baseStyle.layers || []).filter((layer) => {
+    const sourceLayer = layer['source-layer'] || '';
+
+    if (layer.type === 'symbol') {
+      return ['place', 'housenumber', 'poi', 'transportation_name', 'water_name', 'aeroway'].includes(sourceLayer);
+    }
+
+    if (layer.type === 'line') {
+      return ['boundary', 'transportation', 'waterway', 'aeroway'].includes(sourceLayer);
+    }
+
+    return false;
+  }).map((layer) => {
+    const styledLayer = cloneStyle(layer);
+
+    if (styledLayer.type === 'line') {
+      styledLayer.paint = {
+        ...(styledLayer.paint || {}),
+        'line-color': styledLayer['source-layer'] === 'boundary' ? '#c6d0de' : '#ffe680',
+        'line-opacity': 0.75,
+      };
+    }
+
+    if (styledLayer.type === 'symbol') {
+      styledLayer.paint = {
+        ...(styledLayer.paint || {}),
+        'text-color': '#f4f7ff',
+        'text-halo-color': '#102342',
+        'text-halo-width': 1.4,
+      };
+    }
+
+    return styledLayer;
+  });
+
+  return {
+    version: 8,
+    name: 'TripPilot Terrain',
+    glyphs: baseStyle.glyphs,
+    sprite: baseStyle.sprite,
+    sources: {
+      ...baseStyle.sources,
+      satellite: {
+        type: 'raster',
+        tiles: [SATELLITE_TILE_URL],
+        tileSize: 256,
+        attribution: 'Esri World Imagery',
+      },
+    },
+    layers: [
+      {
+        id: 'satellite-base',
+        type: 'raster',
+        source: 'satellite',
+      },
+      ...overlays,
+    ],
+  };
+}
+
+function buildDetailedStyle(baseStyle) {
+  const detailedStyle = cloneStyle(baseStyle);
+  const layers = detailedStyle.layers || [];
+
+  layers.forEach((layer) => {
+    if (layer.type === 'symbol') {
+      layer.paint = {
+        ...(layer.paint || {}),
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.4,
+      };
+    }
+
+    if (layer.type === 'line' && layer['source-layer'] === 'transportation') {
+      layer.paint = {
+        ...(layer.paint || {}),
+        'line-opacity': 0.95,
+      };
+    }
+  });
+
+  layers.push(
+    {
+      id: 'trip-pilot-admin-province-outline',
+      type: 'line',
+      source: 'openmaptiles',
+      'source-layer': 'boundary',
+      filter: ['>=', ['to-number', ['get', 'admin_level'], 0], 4],
+      minzoom: 2,
+      paint: {
+        'line-color': '#6b7f99',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.45, 8, 1.1, 12, 1.8],
+        'line-opacity': 0.85,
+      },
+    },
+    {
+      id: 'trip-pilot-major-road-emphasis',
+      type: 'line',
+      source: 'openmaptiles',
+      'source-layer': 'transportation',
+      filter: ['in', ['get', 'class'], ['literal', ['motorway', 'trunk', 'primary', 'secondary']]],
+      minzoom: 4,
+      paint: {
+        'line-color': '#f59f00',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.7, 8, 2.4, 12, 5],
+        'line-opacity': 0.88,
+      },
+    },
+    {
+      id: 'trip-pilot-minor-road-emphasis',
+      type: 'line',
+      source: 'openmaptiles',
+      'source-layer': 'transportation',
+      filter: ['in', ['get', 'class'], ['literal', ['tertiary', 'street', 'minor', 'service']]],
+      minzoom: 8,
+      paint: {
+        'line-color': '#e4edf7',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.45, 11, 1.5, 14, 3],
+        'line-opacity': 0.92,
+      },
+    },
+    {
+      id: 'trip-pilot-trail-emphasis',
+      type: 'line',
+      source: 'openmaptiles',
+      'source-layer': 'transportation',
+      filter: ['in', ['get', 'class'], ['literal', ['path', 'track']]],
+      minzoom: 10,
+      paint: {
+        'line-color': '#5c6f82',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.3, 14, 1.6],
+        'line-dasharray': [1.2, 1.1],
+        'line-opacity': 0.95,
+      },
+    }
+  );
+
+  detailedStyle.layers = layers;
+  return detailedStyle;
+}
+
+async function getStyleDefinition(styleMode) {
+  const baseStyle = await getBaseVectorStyle();
+
+  if (styleMode === 'terrain') {
+    return buildTerrainStyle(baseStyle);
+  }
+
+  if (styleMode === 'detailed') {
+    return buildDetailedStyle(baseStyle);
+  }
+
+  return baseStyle;
+}
+
+async function createMap() {
   if (!window.maplibregl) {
     showMapUnavailableMessage();
     return false;
   }
 
+  const style = await getStyleDefinition(mapStyleSelect?.value || 'simple');
   map = new maplibregl.Map({
     container: 'worldMap',
-    style: 'https://demotiles.maplibre.org/style.json',
+    style,
     center: [0, 20],
     zoom: 2,
     minZoom: 2,
@@ -31,6 +215,21 @@ function createMap() {
   map.addControl(new maplibregl.NavigationControl(), 'top-right');
   mapInitialized = true;
   return true;
+}
+
+async function setMapStyle(styleMode) {
+  if (!mapInitialized || !map) {
+    return;
+  }
+
+  try {
+    const style = await getStyleDefinition(styleMode);
+    map.setStyle(style);
+    statusText.textContent = `Map style updated to ${styleMode}.`; 
+  } catch (error) {
+    console.error('Failed to set style', error);
+    statusText.textContent = 'Could not switch map style right now.';
+  }
 }
 
 function updateMapInfo(poi) {
@@ -187,12 +386,20 @@ async function buildClientSideTour(country) {
   };
 }
 
-try {
-  createMap();
-} catch (err) {
-  console.error('MapLibre initialization failed', err);
-  showMapUnavailableMessage();
+async function initApp() {
+  try {
+    await createMap();
+  } catch (err) {
+    console.error('MapLibre initialization failed', err);
+    showMapUnavailableMessage();
+  }
+
+  generateTour();
 }
 
+mapStyleSelect?.addEventListener('change', (event) => {
+  setMapStyle(event.target.value);
+});
+
 generateTourBtn.addEventListener('click', generateTour);
-generateTour();
+initApp();
