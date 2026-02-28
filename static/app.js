@@ -8,17 +8,18 @@ let map;
 let markerLayer;
 
 function createMap() {
-  map = L.map('worldMap', {
-    worldCopyJump: true,
-    minZoom: 2,
-  }).setView([20, 0], 2);
-
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  map = new maplibregl.Map({
+    container: 'worldMap',
+    style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+    center: [0, 20],
+    zoom: 1.4,
+    minZoom: 1,
     maxZoom: 18,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  }).addTo(map);
+    renderWorldCopies: true,
+  });
 
-  markerLayer = L.layerGroup().addTo(map);
+  map.addControl(new maplibregl.NavigationControl(), 'top-right');
+  markerLayer = [];
 }
 
 function updateMapInfo(poi) {
@@ -30,19 +31,28 @@ function updateMapInfo(poi) {
   mapInfo.innerHTML = `<strong>${poi.name}</strong><br/>📍 ${poi.country}<br/>${poi.description}<br/><a href="${poi.source}" target="_blank" rel="noreferrer">Source</a>`;
 }
 
+function clearMarkers() {
+  markerLayer.forEach((marker) => marker.remove());
+  markerLayer = [];
+}
+
 function renderMapPois(pois) {
-  markerLayer.clearLayers();
-  const bounds = [];
+  clearMarkers();
+  const bounds = new maplibregl.LngLatBounds();
 
   pois.forEach((poi) => {
-    const marker = L.marker([poi.lat, poi.lng], { title: poi.name });
-    marker.on('click', () => updateMapInfo(poi));
-    markerLayer.addLayer(marker);
-    bounds.push([poi.lat, poi.lng]);
+    const marker = new maplibregl.Marker({ color: '#4c82ff' })
+      .setLngLat([poi.lng, poi.lat])
+      .setPopup(new maplibregl.Popup({ offset: 18 }).setHTML(`<strong>${poi.name}</strong><br/>${poi.country}`))
+      .addTo(map);
+
+    marker.getElement().addEventListener('click', () => updateMapInfo(poi));
+    markerLayer.push(marker);
+    bounds.extend([poi.lng, poi.lat]);
   });
 
-  if (bounds.length) {
-    map.fitBounds(bounds, { padding: [40, 40], animate: true });
+  if (!bounds.isEmpty()) {
+    map.fitBounds(bounds, { padding: 60, animate: true, maxZoom: 8 });
   }
 }
 
@@ -154,5 +164,7 @@ async function buildClientSideTour(country) {
 }
 
 createMap();
-generateTourBtn.addEventListener('click', generateTour);
-generateTour();
+map.on('load', () => {
+  generateTourBtn.addEventListener('click', generateTour);
+  generateTour();
+});

@@ -155,7 +155,7 @@ body {
   background: #1a4489;
 }
 
-.map-canvas-wrap .leaflet-control-zoom a {
+.map-canvas-wrap .maplibregl-ctrl-group button {
   color: #16233a;
 }
 
