@@ -155,6 +155,52 @@ def collect_live_pois(country: str, limit: int = 8) -> list[dict]:
     return pois
 
 
+def collect_map_context_pois(*, lat: float, lng: float, zoom: float, limit: int = 24) -> list[dict]:
+    radius = int(max(1000, min(10000, 12000 - zoom * 900)))
+    geosearch_url = (
+        "https://en.wikipedia.org/w/api.php?action=query&list=geosearch"
+        f"&gscoord={lat}%7C{lng}&gsradius={radius}&gslimit={limit}&format=json&utf8=1"
+    )
+
+    payload = fetch_json(geosearch_url)
+    results = payload.get("query", {}).get("geosearch", [])
+    pois: list[dict] = []
+
+    for item in results:
+        title = item.get("title")
+        if not title:
+            continue
+
+        summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{quote(title)}"
+        try:
+            summary = fetch_json(summary_url)
+        except Exception:
+            continue
+
+        coordinates = summary.get("coordinates") or {}
+        poi_lat = coordinates.get("lat")
+        poi_lng = coordinates.get("lon")
+
+        if poi_lat is None or poi_lng is None:
+            poi_lat = item.get("lat")
+            poi_lng = item.get("lon")
+
+        if poi_lat is None or poi_lng is None:
+            continue
+
+        pois.append(
+            {
+                "name": summary.get("title", title),
+                "description": summary.get("extract", "")[:220],
+                "source": summary.get("content_urls", {}).get("desktop", {}).get("page", ""),
+                "lat": poi_lat,
+                "lng": poi_lng,
+            }
+        )
+
+    return pois
+
+
 def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
     if not pois:
         return []
@@ -322,6 +368,45 @@ class TripPilotHandler(BaseHTTPRequestHandler):
                     {"error": f"Unable to build AI tour right now: {exc}"},
                     status=HTTPStatus.BAD_GATEWAY,
                 )
+            return
+
+        if parsed.path == "/api/map-context":
+            params = parse_qs(parsed.query)
+            bbox = params.get("bbox", [""])[0]
+            zoom_param = params.get("zoom", ["8"])[0]
+
+            try:
+                zoom = float(zoom_param)
+            except ValueError:
+                zoom = 8.0
+
+            try:
+                west, south, east, north = [float(part) for part in bbox.split(",")]
+            except Exception:
+                self._send_json({"error": "Invalid bbox query format"}, status=HTTPStatus.BAD_REQUEST)
+                return
+
+            center_lat = (south + north) / 2
+            center_lng = (west + east) / 2
+
+            try:
+                pois = collect_map_context_pois(lat=center_lat, lng=center_lng, zoom=zoom)
+            except Exception as exc:
+                self._send_json(
+                    {"error": f"Unable to collect map context right now: {exc}"},
+                    status=HTTPStatus.BAD_GATEWAY,
+                )
+                return
+
+            self._send_json(
+                {
+                    "center": {"lat": center_lat, "lng": center_lng},
+                    "zoom": zoom,
+                    "count": len(pois),
+                    "pois": pois,
+                    "source": "Wikipedia Geosearch + Page Summary",
+                }
+            )
             return
 
         if parsed.path == "/":

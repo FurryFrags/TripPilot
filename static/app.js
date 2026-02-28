@@ -5,198 +5,150 @@ const mapInfo = document.getElementById('mapInfo');
 const statusText = document.getElementById('statusText');
 const mapStyleSelect = document.getElementById('mapStyleSelect');
 
-const BASE_VECTOR_STYLE_URL = 'https://demotiles.maplibre.org/style.json';
-const SATELLITE_TILE_URL = 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const TILE_APIS = {
+  terrain: [
+    'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+    'https://b.tile.opentopomap.org/{z}/{x}/{y}.png',
+    'https://c.tile.opentopomap.org/{z}/{x}/{y}.png',
+  ],
+  simple: [
+    'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  ],
+  detailed: [
+    'https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+    'https://b.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+  ],
+};
+const MAP_TILE_ATTRIBUTION = '© OpenStreetMap contributors, OpenTopoMap';
 
 let map;
 let markers = [];
 let mapInitialized = false;
-let baseVectorStyleCache;
 let mapReady = false;
 let queuedStyleMode = null;
 let styleUpdateRequestId = 0;
+let mapLoopTimer = null;
+let mapContextRequestInFlight = false;
 
 function showMapUnavailableMessage() {
   statusText.textContent = 'Map assets failed to load. You can still generate an itinerary without the map.';
   mapInfo.textContent = 'Map unavailable: map assets failed to load. Place details will appear here when map support is restored.';
 }
 
-function cloneStyle(style) {
-  if (typeof structuredClone === 'function') {
-    return structuredClone(style);
-  }
-
-  return JSON.parse(JSON.stringify(style));
-}
-
-async function getBaseVectorStyle() {
-  if (baseVectorStyleCache) {
-    return cloneStyle(baseVectorStyleCache);
-  }
-
-  const response = await fetch(BASE_VECTOR_STYLE_URL);
-  if (!response.ok) {
-    throw new Error('Unable to fetch MapLibre base style');
-  }
-
-  baseVectorStyleCache = await response.json();
-  return cloneStyle(baseVectorStyleCache);
-}
-
-function buildTerrainStyle(baseStyle) {
-  const overlays = (baseStyle.layers || []).filter((layer) => {
-    const sourceLayer = layer['source-layer'] || '';
-
-    if (layer.type === 'symbol') {
-      return ['place', 'housenumber', 'poi', 'transportation_name', 'water_name', 'aeroway'].includes(sourceLayer);
-    }
-
-    if (layer.type === 'line') {
-      return ['boundary', 'transportation', 'waterway', 'aeroway'].includes(sourceLayer);
-    }
-
-    return false;
-  }).map((layer) => {
-    const styledLayer = cloneStyle(layer);
-
-    if (styledLayer.type === 'line') {
-      styledLayer.paint = {
-        ...(styledLayer.paint || {}),
-        'line-color': styledLayer['source-layer'] === 'boundary' ? '#c6d0de' : '#ffe680',
-        'line-opacity': 0.75,
-      };
-    }
-
-    if (styledLayer.type === 'symbol') {
-      styledLayer.paint = {
-        ...(styledLayer.paint || {}),
-        'text-color': '#f4f7ff',
-        'text-halo-color': '#102342',
-        'text-halo-width': 1.4,
-      };
-    }
-
-    return styledLayer;
-  });
+function getStyleDefinition(styleMode) {
+  const tiles = TILE_APIS[styleMode] || TILE_APIS.terrain;
 
   return {
     version: 8,
-    name: 'TripPilot Terrain',
-    glyphs: baseStyle.glyphs,
-    sprite: baseStyle.sprite,
+    name: `TripPilot ${styleMode}`,
     sources: {
-      ...baseStyle.sources,
-      satellite: {
+      basemap: {
         type: 'raster',
-        tiles: [SATELLITE_TILE_URL],
+        tiles,
         tileSize: 256,
-        attribution: 'Esri World Imagery',
+        minzoom: 0,
+        maxzoom: 19,
+        attribution: MAP_TILE_ATTRIBUTION,
       },
     },
     layers: [
       {
-        id: 'satellite-base',
+        id: 'basemap-raster',
         type: 'raster',
-        source: 'satellite',
+        source: 'basemap',
       },
-      ...overlays,
     ],
   };
 }
 
-function buildDetailedStyle(baseStyle) {
-  const detailedStyle = cloneStyle(baseStyle);
-  const layers = detailedStyle.layers || [];
+function ensureMapContextLayers() {
+  if (!map.getSource('map-context')) {
+    map.addSource('map-context', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+  }
 
-  layers.forEach((layer) => {
-    if (layer.type === 'symbol') {
-      layer.paint = {
-        ...(layer.paint || {}),
-        'text-halo-color': '#ffffff',
-        'text-halo-width': 1.4,
-      };
-    }
-
-    if (layer.type === 'line' && layer['source-layer'] === 'transportation') {
-      layer.paint = {
-        ...(layer.paint || {}),
-        'line-opacity': 0.95,
-      };
-    }
-  });
-
-  layers.push(
-    {
-      id: 'trip-pilot-admin-province-outline',
-      type: 'line',
-      source: 'openmaptiles',
-      'source-layer': 'boundary',
-      filter: ['>=', ['to-number', ['get', 'admin_level'], 0], 4],
-      minzoom: 2,
+  if (!map.getLayer('map-context-circles')) {
+    map.addLayer({
+      id: 'map-context-circles',
+      type: 'circle',
+      source: 'map-context',
       paint: {
-        'line-color': '#6b7f99',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.45, 8, 1.1, 12, 1.8],
-        'line-opacity': 0.85,
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 3, 10, 7, 15, 10],
+        'circle-color': '#2f72ff',
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 1.5,
+        'circle-opacity': 0.85,
       },
-    },
-    {
-      id: 'trip-pilot-major-road-emphasis',
-      type: 'line',
-      source: 'openmaptiles',
-      'source-layer': 'transportation',
-      filter: ['in', ['get', 'class'], ['literal', ['motorway', 'trunk', 'primary', 'secondary']]],
-      minzoom: 4,
-      paint: {
-        'line-color': '#f59f00',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.7, 8, 2.4, 12, 5],
-        'line-opacity': 0.88,
-      },
-    },
-    {
-      id: 'trip-pilot-minor-road-emphasis',
-      type: 'line',
-      source: 'openmaptiles',
-      'source-layer': 'transportation',
-      filter: ['in', ['get', 'class'], ['literal', ['tertiary', 'street', 'minor', 'service']]],
-      minzoom: 8,
-      paint: {
-        'line-color': '#e4edf7',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.45, 11, 1.5, 14, 3],
-        'line-opacity': 0.92,
-      },
-    },
-    {
-      id: 'trip-pilot-trail-emphasis',
-      type: 'line',
-      source: 'openmaptiles',
-      'source-layer': 'transportation',
-      filter: ['in', ['get', 'class'], ['literal', ['path', 'track']]],
-      minzoom: 10,
-      paint: {
-        'line-color': '#5c6f82',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.3, 14, 1.6],
-        'line-dasharray': [1.2, 1.1],
-        'line-opacity': 0.95,
-      },
-    }
-  );
-
-  detailedStyle.layers = layers;
-  return detailedStyle;
+    });
+  }
 }
 
-async function getStyleDefinition(styleMode) {
-  const baseStyle = await getBaseVectorStyle();
+function updateMapContextFeatures(pois) {
+  if (!mapInitialized || !map || !mapReady) return;
 
-  if (styleMode === 'terrain') {
-    return buildTerrainStyle(baseStyle);
+  ensureMapContextLayers();
+  const source = map.getSource('map-context');
+  if (!source) return;
+
+  source.setData({
+    type: 'FeatureCollection',
+    features: pois.map((poi) => ({
+      type: 'Feature',
+      properties: {
+        name: poi.name,
+        description: poi.description,
+        source: poi.source,
+      },
+      geometry: {
+        type: 'Point',
+        coordinates: [poi.lng, poi.lat],
+      },
+    })),
+  });
+}
+
+async function runMapDataLoop() {
+  if (!mapInitialized || !map || !mapReady || mapContextRequestInFlight) {
+    return;
   }
 
-  if (styleMode === 'detailed') {
-    return buildDetailedStyle(baseStyle);
+  const bounds = map.getBounds();
+  if (!bounds) return;
+
+  mapContextRequestInFlight = true;
+
+  const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
+    .map((value) => value.toFixed(5))
+    .join(',');
+
+  const zoom = map.getZoom().toFixed(2);
+
+  try {
+    const response = await fetch(`/api/map-context?bbox=${bbox}&zoom=${zoom}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const payload = await response.json();
+    updateMapContextFeatures(payload.pois || []);
+  } catch (error) {
+    console.error('Map context loop failed', error);
+  } finally {
+    mapContextRequestInFlight = false;
+  }
+}
+
+function startMapLoop() {
+  if (mapLoopTimer) {
+    clearInterval(mapLoopTimer);
   }
 
-  return baseStyle;
+  mapLoopTimer = setInterval(runMapDataLoop, 3000);
+  runMapDataLoop();
 }
 
 async function createMap() {
@@ -205,13 +157,14 @@ async function createMap() {
     return false;
   }
 
-  const style = await getStyleDefinition(mapStyleSelect?.value || 'simple');
+  const style = getStyleDefinition(mapStyleSelect?.value || 'terrain');
   map = new maplibregl.Map({
     container: 'worldMap',
     style,
     center: [0, 20],
     zoom: 2,
     minZoom: 2,
+    maxZoom: 19,
     renderWorldCopies: true,
   });
 
@@ -221,12 +174,26 @@ async function createMap() {
   map.on('load', () => {
     mapReady = true;
     mapStyleSelect.disabled = false;
+    ensureMapContextLayers();
+    startMapLoop();
 
     if (queuedStyleMode) {
       const styleMode = queuedStyleMode;
       queuedStyleMode = null;
       setMapStyle(styleMode);
     }
+  });
+
+  map.on('click', 'map-context-circles', (event) => {
+    const clicked = event.features?.[0]?.properties;
+    if (!clicked) return;
+
+    updateMapInfo({
+      name: clicked.name,
+      country: 'Map context feed',
+      description: clicked.description,
+      source: clicked.source,
+    });
   });
 
   map.on('error', (errorEvent) => {
@@ -250,7 +217,7 @@ async function setMapStyle(styleMode) {
   const requestId = ++styleUpdateRequestId;
 
   try {
-    const style = await getStyleDefinition(styleMode);
+    const style = getStyleDefinition(styleMode);
 
     if (requestId !== styleUpdateRequestId) {
       return;
@@ -262,6 +229,8 @@ async function setMapStyle(styleMode) {
     map.once('idle', () => {
       mapReady = true;
       mapStyleSelect.disabled = false;
+      ensureMapContextLayers();
+      runMapDataLoop();
     });
 
     statusText.textContent = `Map style updated to ${styleMode}.`;
@@ -308,7 +277,7 @@ function renderMapPois(pois) {
   });
 
   if (!bounds.isEmpty()) {
-    map.fitBounds(bounds, { padding: 40, animate: true });
+    map.fitBounds(bounds, { padding: 40, animate: true, maxZoom: 12 });
   }
 }
 
