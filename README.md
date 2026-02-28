@@ -8,7 +8,7 @@ It can pull attractions from public internet sources and use a free no-key AI mo
 - Country-based tour generation without API keys.
 - Live POI discovery from public web endpoints.
 - AI-generated day-by-day itinerary suggestions.
-- MapLibre map pins for discovered places.
+- Leaflet map pins for discovered places.
 
 ## Run on GitHub Pages
 
