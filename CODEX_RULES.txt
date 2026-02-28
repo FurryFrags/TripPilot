@@ -1,0 +1,6 @@
+READ THIS FILE FIRST FOR EVERY CODEX/AGENT SESSION IN THIS REPO.
+
+TripPilot Codex Agent Rules
+
+1. Only use MapLibre for map functionality. Do not use any other map provider or map library.
+2. Never fail silently; think critically and do research before deciding or responding.
