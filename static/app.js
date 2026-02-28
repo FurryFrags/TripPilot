@@ -6,7 +6,7 @@ const statusText = document.getElementById('statusText');
 const mapStyleSelect = document.getElementById('mapStyleSelect');
 
 const BASE_VECTOR_STYLE_URL = 'https://demotiles.maplibre.org/style.json';
-const SATELLITE_TILE_URL = 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const MAP_CONTENT_LOOP_INTERVAL_MS = 4500;
 
 let map;
 let markers = [];
@@ -15,6 +15,14 @@ let baseVectorStyleCache;
 let mapReady = false;
 let queuedStyleMode = null;
 let styleUpdateRequestId = 0;
+let mapContentLoopId = null;
+let mapContentLoopInFlight = false;
+let liveMapFeatureCollection = { type: 'FeatureCollection', features: [] };
+let liveMapHandlersBound = false;
+
+const LIVE_SOURCE_ID = 'trip-pilot-live-content';
+const LIVE_CIRCLE_LAYER_ID = 'trip-pilot-live-content-circle';
+const LIVE_LABEL_LAYER_ID = 'trip-pilot-live-content-label';
 
 function showMapUnavailableMessage() {
   statusText.textContent = 'Map assets failed to load. You can still generate an itinerary without the map.';
@@ -62,8 +70,8 @@ function buildTerrainStyle(baseStyle) {
     if (styledLayer.type === 'line') {
       styledLayer.paint = {
         ...(styledLayer.paint || {}),
-        'line-color': styledLayer['source-layer'] === 'boundary' ? '#c6d0de' : '#ffe680',
-        'line-opacity': 0.75,
+        'line-color': styledLayer['source-layer'] === 'boundary' ? '#9fb2c7' : '#f5ce65',
+        'line-opacity': 0.8,
       };
     }
 
@@ -84,20 +92,14 @@ function buildTerrainStyle(baseStyle) {
     name: 'TripPilot Terrain',
     glyphs: baseStyle.glyphs,
     sprite: baseStyle.sprite,
-    sources: {
-      ...baseStyle.sources,
-      satellite: {
-        type: 'raster',
-        tiles: [SATELLITE_TILE_URL],
-        tileSize: 256,
-        attribution: 'Esri World Imagery',
-      },
-    },
+    sources: { ...baseStyle.sources },
     layers: [
       {
-        id: 'satellite-base',
-        type: 'raster',
-        source: 'satellite',
+        id: 'trip-pilot-terrain-background',
+        type: 'background',
+        paint: {
+          'background-color': '#233243',
+        },
       },
       ...overlays,
     ],
@@ -205,13 +207,14 @@ async function createMap() {
     return false;
   }
 
-  const style = await getStyleDefinition(mapStyleSelect?.value || 'simple');
+  const style = await getStyleDefinition(mapStyleSelect?.value || 'terrain');
   map = new maplibregl.Map({
     container: 'worldMap',
     style,
     center: [0, 20],
     zoom: 2,
     minZoom: 2,
+    maxZoom: 16,
     renderWorldCopies: true,
   });
 
@@ -221,6 +224,8 @@ async function createMap() {
   map.on('load', () => {
     mapReady = true;
     mapStyleSelect.disabled = false;
+    ensureLiveContentLayers();
+    retrieveMapContent();
 
     if (queuedStyleMode) {
       const styleMode = queuedStyleMode;
@@ -262,6 +267,8 @@ async function setMapStyle(styleMode) {
     map.once('idle', () => {
       mapReady = true;
       mapStyleSelect.disabled = false;
+      ensureLiveContentLayers();
+      retrieveMapContent();
     });
 
     statusText.textContent = `Map style updated to ${styleMode}.`;
@@ -280,6 +287,138 @@ function updateMapInfo(poi) {
   }
 
   mapInfo.innerHTML = `<strong>${poi.name}</strong><br/>📍 ${poi.country}<br/>${poi.description}<br/><a href="${poi.source}" target="_blank" rel="noreferrer">Source</a>`;
+}
+
+function featureToPoi(feature) {
+  if (!feature) {
+    return null;
+  }
+
+  const [lng, lat] = feature.geometry?.coordinates || [];
+  return {
+    name: feature.properties?.name || 'Unnamed place',
+    country: feature.properties?.country || 'Unknown country',
+    description: feature.properties?.description || 'No live description available.',
+    source: feature.properties?.source || '#',
+    lng,
+    lat,
+  };
+}
+
+function ensureLiveContentLayers() {
+  if (!map || !mapReady) {
+    return;
+  }
+
+  if (!map.getSource(LIVE_SOURCE_ID)) {
+    map.addSource(LIVE_SOURCE_ID, {
+      type: 'geojson',
+      data: liveMapFeatureCollection,
+    });
+  }
+
+  if (!map.getLayer(LIVE_CIRCLE_LAYER_ID)) {
+    map.addLayer({
+      id: LIVE_CIRCLE_LAYER_ID,
+      type: 'circle',
+      source: LIVE_SOURCE_ID,
+      paint: {
+        'circle-color': '#00a3ff',
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 3, 8, 5, 13, 7],
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 1.2,
+      },
+    });
+
+  }
+
+  if (!liveMapHandlersBound) {
+    map.on('click', LIVE_CIRCLE_LAYER_ID, (event) => {
+      const feature = event.features?.[0];
+      updateMapInfo(featureToPoi(feature));
+    });
+
+    map.on('mouseenter', LIVE_CIRCLE_LAYER_ID, () => {
+      map.getCanvas().style.cursor = 'pointer';
+    });
+
+    map.on('mouseleave', LIVE_CIRCLE_LAYER_ID, () => {
+      map.getCanvas().style.cursor = '';
+    });
+
+    liveMapHandlersBound = true;
+  }
+
+  if (!map.getLayer(LIVE_LABEL_LAYER_ID)) {
+    map.addLayer({
+      id: LIVE_LABEL_LAYER_ID,
+      type: 'symbol',
+      source: LIVE_SOURCE_ID,
+      minzoom: 6,
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-size': 11,
+        'text-offset': [0, 1.1],
+      },
+      paint: {
+        'text-color': '#f8f9fa',
+        'text-halo-color': '#102342',
+        'text-halo-width': 1.2,
+      },
+    });
+  }
+}
+
+async function retrieveMapContent() {
+  if (!mapInitialized || !map || !mapReady || mapContentLoopInFlight) {
+    return;
+  }
+
+  mapContentLoopInFlight = true;
+
+  try {
+    const bounds = map.getBounds();
+    const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(',');
+    const country = encodeURIComponent(countryInput.value.trim() || 'world');
+    const zoom = map.getZoom().toFixed(2);
+    const response = await fetch(`/api/map-content?country=${country}&zoom=${zoom}&bbox=${bbox}`);
+
+    if (!response.ok) {
+      return;
+    }
+
+    const payload = await response.json();
+    const features = Array.isArray(payload.features) ? payload.features : [];
+    liveMapFeatureCollection = {
+      type: 'FeatureCollection',
+      features,
+    };
+
+    ensureLiveContentLayers();
+    const source = map.getSource(LIVE_SOURCE_ID);
+    if (source) {
+      source.setData(liveMapFeatureCollection);
+    }
+  } catch (error) {
+    console.error('Map content loop failed', error);
+  } finally {
+    mapContentLoopInFlight = false;
+  }
+}
+
+function startMapContentLoop() {
+  if (!mapInitialized || !map || mapContentLoopId) {
+    return;
+  }
+
+  map.on('moveend', retrieveMapContent);
+  map.on('zoomend', retrieveMapContent);
+
+  mapContentLoopId = window.setInterval(() => {
+    retrieveMapContent();
+  }, MAP_CONTENT_LOOP_INTERVAL_MS);
+
+  retrieveMapContent();
 }
 
 function renderMapPois(pois) {
@@ -432,6 +571,7 @@ async function initApp() {
 
   try {
     await createMap();
+    startMapContentLoop();
   } catch (err) {
     console.error('MapLibre initialization failed', err);
     showMapUnavailableMessage();
