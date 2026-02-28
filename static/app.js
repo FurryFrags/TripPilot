@@ -6,8 +6,19 @@ const statusText = document.getElementById('statusText');
 
 let map;
 let markers = [];
+let mapInitialized = false;
+
+function showMapUnavailableMessage() {
+  statusText.textContent = 'Map assets failed to load. You can still generate an itinerary without the map.';
+  mapInfo.textContent = 'Map unavailable: map assets failed to load. Place details will appear here when map support is restored.';
+}
 
 function createMap() {
+  if (!window.maplibregl) {
+    showMapUnavailableMessage();
+    return false;
+  }
+
   map = new maplibregl.Map({
     container: 'worldMap',
     style: 'https://demotiles.maplibre.org/style.json',
@@ -18,6 +29,8 @@ function createMap() {
   });
 
   map.addControl(new maplibregl.NavigationControl(), 'top-right');
+  mapInitialized = true;
+  return true;
 }
 
 function updateMapInfo(poi) {
@@ -30,6 +43,10 @@ function updateMapInfo(poi) {
 }
 
 function renderMapPois(pois) {
+  if (!mapInitialized || !map || !window.maplibregl) {
+    return;
+  }
+
   markers.forEach((marker) => marker.remove());
   markers = [];
   const bounds = new maplibregl.LngLatBounds();
@@ -77,19 +94,27 @@ async function generateTour() {
   const country = countryInput.value.trim();
   if (!country) return;
 
-  statusText.textContent = `Generating live AI tour for ${country}...`;
+  statusText.textContent = mapInitialized
+    ? `Generating live AI tour for ${country}...`
+    : `Generating live AI tour for ${country}... (map unavailable: assets failed to load)`;
   itinerary.innerHTML = '<div class="empty">Thinking...</div>';
-  updateMapInfo(null);
+  if (mapInitialized) {
+    updateMapInfo(null);
+  }
 
   try {
     const data = await requestAiTour(country);
 
     renderMapPois(data.pois || []);
     renderItinerary(data.country, data.days || [], data.source || 'live web data');
-    statusText.textContent = `Done: ${data.country} plan created from live internet sources.`;
+    statusText.textContent = mapInitialized
+      ? `Done: ${data.country} plan created from live internet sources.`
+      : `Done: ${data.country} plan created from live internet sources. (Map unavailable: assets failed to load)`;
   } catch (err) {
     itinerary.innerHTML = `<div class="empty">${err.message}</div>`;
-    statusText.textContent = 'Unable to generate a live AI tour right now.';
+    statusText.textContent = mapInitialized
+      ? 'Unable to generate a live AI tour right now.'
+      : 'Unable to generate a live AI tour right now. (Map unavailable: assets failed to load)';
   }
 }
 
@@ -162,6 +187,12 @@ async function buildClientSideTour(country) {
   };
 }
 
-createMap();
+try {
+  createMap();
+} catch (err) {
+  console.error('MapLibre initialization failed', err);
+  showMapUnavailableMessage();
+}
+
 generateTourBtn.addEventListener('click', generateTour);
 generateTour();
