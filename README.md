@@ -21,3 +21,53 @@ This project is fully static and can run directly on GitHub Pages.
 ## Run locally (optional)
 
 You can open `index.html` from the repository root (it redirects automatically), open `static/index.html` directly, or serve files with any static file server.
+
+## PollinationsClient – Free AI for Tour Recommendations
+
+### Why this client
+
+- Pollinations offers zero-cost, no-key endpoints that fit TripPilot's workflow for both itinerary/description text generation and visual destination imagery.
+
+### Throttling
+
+- Anonymous usage is rate-limited (roughly 1 request every 15 seconds), so the global queue defaults to 16 seconds to reduce collisions, retries, and intermittent failures.
+
+### Tour AI workflow
+
+1. Generate structured itinerary and tour description text.
+2. Generate matching landmark/destination images from the produced context.
+
+### Future upgrade
+
+- For better limits and stability, pass an `apiKey` and point requests to the unified endpoint: `https://gen.pollinations.ai`.
+
+### Minimal usage snippet
+
+```js
+import { PollinationsClient } from "./static/js/pollinations.js";
+
+const client = new PollinationsClient({
+  // Optional upgrade path:
+  // apiKey: process.env.POLLINATIONS_API_KEY,
+  // baseURL: "https://gen.pollinations.ai",
+});
+
+const itinerary = await client.chatCompletions({
+  model: "openai",
+  messages: [
+    { role: "system", content: "You are a tour planner." },
+    { role: "user", content: "Create a 3-day itinerary for Rome." },
+  ],
+});
+
+const imageUrl = await client.imageURL({
+  prompt: "Sunset view of the Colosseum, cinematic travel photo",
+  width: 1024,
+  height: 768,
+});
+
+const textModels = await client.listTextModels();
+const imageModels = await client.listImageModels();
+
+console.log({ itinerary, imageUrl, textModels, imageModels });
+```
