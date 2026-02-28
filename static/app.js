@@ -73,17 +73,7 @@ async function generateTour() {
   updateMapInfo(null);
 
   try {
-    const res = await fetch(`/api/ai-tour?country=${encodeURIComponent(country)}`);
-    const bodyText = await res.text();
-    let data;
-
-    try {
-      data = JSON.parse(bodyText);
-    } catch {
-      throw new Error('Server returned a non-JSON response. Please try again in a moment.');
-    }
-
-    if (!res.ok) throw new Error(data.error || 'Failed to generate tour');
+    const data = await requestAiTour(country);
 
     renderMapPois(data.pois || []);
     renderItinerary(data.country, data.days || [], data.source || 'live web data');
@@ -92,6 +82,75 @@ async function generateTour() {
     itinerary.innerHTML = `<div class="empty">${err.message}</div>`;
     statusText.textContent = 'Unable to generate a live AI tour right now.';
   }
+}
+
+function getAiTourEndpoints(country) {
+  const query = `country=${encodeURIComponent(country)}`;
+  const endpoints = [`/api/ai-tour?${query}`];
+
+  if (window.location.protocol.startsWith('http')) {
+    const localApi = `${window.location.protocol}//${window.location.hostname}:8000/api/ai-tour?${query}`;
+    if (!endpoints.includes(localApi)) endpoints.push(localApi);
+  }
+
+  return endpoints;
+}
+
+async function requestAiTour(country) {
+  for (const url of getAiTourEndpoints(country)) {
+    try {
+      const res = await fetch(url);
+      const bodyText = await res.text();
+      let data;
+
+      try {
+        data = JSON.parse(bodyText);
+      } catch {
+        continue;
+      }
+
+      if (!res.ok) {
+        if (res.status === 404) continue;
+        throw new Error(data.error || 'Failed to generate tour');
+      }
+
+      return data;
+    } catch {
+      // Try the next endpoint.
+    }
+  }
+
+  return buildClientSideTour(country);
+}
+
+async function buildClientSideTour(country) {
+  const prompt = [
+    'Generate travel itinerary JSON only.',
+    'Schema: {"days":[{"day":1,"theme":"...","stops":["..."],"notes":"..."}]}.',
+    `Country: ${country}. Keep it concise and practical for tourists.`,
+  ].join(' ');
+
+  const res = await fetch(`https://text.pollinations.ai/${encodeURIComponent(prompt)}`);
+  const raw = await res.text();
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    const extracted = raw.match(/\{[\s\S]*\}/);
+    parsed = extracted ? JSON.parse(extracted[0]) : null;
+  }
+
+  if (!parsed || !Array.isArray(parsed.days)) {
+    throw new Error('AI responded with an unexpected format. Please try again.');
+  }
+
+  return {
+    country,
+    days: parsed.days,
+    pois: [],
+    source: 'Pollinations AI (browser fallback)',
+  };
 }
 
 createMap();
