@@ -155,8 +155,18 @@ body {
   background: #1a4489;
 }
 
-.map-canvas-wrap .leaflet-control-zoom a {
+.map-canvas-wrap .maplibregl-ctrl-group button {
   color: #16233a;
+}
+
+.maplibre-marker {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid #ffffff;
+  background: #2f7dff;
+  box-shadow: 0 0 0 2px rgba(10, 21, 43, .32);
+  cursor: pointer;
 }
 
 .service-marker-icon {
