@@ -43,7 +43,7 @@ body {
 
 .layout {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 280px minmax(0, 0.8fr) 320px;
   min-height: calc(100vh - 100px);
 }
 
@@ -115,7 +115,9 @@ body {
   font-weight: 600;
 }
 
-.content { padding: 1rem; }
+.content {
+  padding: 1rem;
+}
 
 .map-panel {
   background: #081b3d;
@@ -148,7 +150,17 @@ body {
   border-radius: .8rem;
   border: 1px solid rgba(255,255,255,.16);
   overflow: hidden;
-  min-height: 420px;
+  min-height: 630px;
+}
+
+.itinerary-sidebar {
+  border-right: 0;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.itinerary-sidebar h2 {
+  margin-top: 0;
 }
 
 .map-region-controls {
@@ -314,8 +326,12 @@ body {
 
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; }
-  .sidebar { border-right: 0; border-bottom: 1px solid var(--border); }
+  .sidebar { border-right: 0; border-left: 0; border-bottom: 1px solid var(--border); }
   .brand-wrap {
     padding: .9rem 1rem 1rem;
+  }
+
+  .map-canvas-wrap {
+    min-height: 420px;
   }
 }
