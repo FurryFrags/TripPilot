@@ -5,13 +5,82 @@ const mapInfo = document.getElementById('mapInfo');
 const statusText = document.getElementById('statusText');
 const mapStyleSelect = document.getElementById('mapStyleSelect');
 
-const BASE_VECTOR_STYLE_URL = 'https://demotiles.maplibre.org/style.json';
-const SATELLITE_TILE_URL = 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const MAP_STYLE_DEFINITIONS = {
+  terrain: {
+    label: 'Terrain',
+    sources: {
+      terrainBase: {
+        type: 'raster',
+        tiles: ['https://services.arcgisonline.com/ArcGIS/rest/services/World_Terrain_Base/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        minzoom: 0,
+        maxzoom: 19,
+      },
+      terrainLabels: {
+        type: 'raster',
+        tiles: ['https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Reference_Overlay/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        minzoom: 0,
+        maxzoom: 19,
+      },
+    },
+    layers: [
+      { id: 'terrain-base', type: 'raster', source: 'terrainBase' },
+      { id: 'terrain-labels', type: 'raster', source: 'terrainLabels' },
+    ],
+    attribution: 'Esri World Terrain Base, Esri World Reference Overlay',
+  },
+  simple: {
+    label: 'Simple',
+    sources: {
+      topoBase: {
+        type: 'raster',
+        tiles: ['https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        minzoom: 0,
+        maxzoom: 19,
+      },
+    },
+    layers: [{ id: 'topo-base', type: 'raster', source: 'topoBase' }],
+    attribution: 'Esri World Topographic Map',
+  },
+  detailed: {
+    label: 'Detailed',
+    sources: {
+      imageryBase: {
+        type: 'raster',
+        tiles: ['https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        minzoom: 0,
+        maxzoom: 19,
+      },
+      transportationRef: {
+        type: 'raster',
+        tiles: ['https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        minzoom: 0,
+        maxzoom: 19,
+      },
+      boundariesRef: {
+        type: 'raster',
+        tiles: ['https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        minzoom: 0,
+        maxzoom: 19,
+      },
+    },
+    layers: [
+      { id: 'imagery-base', type: 'raster', source: 'imageryBase' },
+      { id: 'transportation-ref', type: 'raster', source: 'transportationRef' },
+      { id: 'boundaries-ref', type: 'raster', source: 'boundariesRef' },
+    ],
+    attribution: 'Esri World Imagery, Esri World Transportation, Esri World Boundaries and Places',
+  },
+};
 
 let map;
 let markers = [];
 let mapInitialized = false;
-let baseVectorStyleCache;
 let mapReady = false;
 let queuedStyleMode = null;
 let styleUpdateRequestId = 0;
@@ -22,181 +91,19 @@ function showMapUnavailableMessage() {
 }
 
 function cloneStyle(style) {
-  if (typeof structuredClone === 'function') {
-    return structuredClone(style);
-  }
-
+  if (typeof structuredClone === 'function') return structuredClone(style);
   return JSON.parse(JSON.stringify(style));
 }
 
-async function getBaseVectorStyle() {
-  if (baseVectorStyleCache) {
-    return cloneStyle(baseVectorStyleCache);
-  }
-
-  const response = await fetch(BASE_VECTOR_STYLE_URL);
-  if (!response.ok) {
-    throw new Error('Unable to fetch MapLibre base style');
-  }
-
-  baseVectorStyleCache = await response.json();
-  return cloneStyle(baseVectorStyleCache);
-}
-
-function buildTerrainStyle(baseStyle) {
-  const overlays = (baseStyle.layers || []).filter((layer) => {
-    const sourceLayer = layer['source-layer'] || '';
-
-    if (layer.type === 'symbol') {
-      return ['place', 'housenumber', 'poi', 'transportation_name', 'water_name', 'aeroway'].includes(sourceLayer);
-    }
-
-    if (layer.type === 'line') {
-      return ['boundary', 'transportation', 'waterway', 'aeroway'].includes(sourceLayer);
-    }
-
-    return false;
-  }).map((layer) => {
-    const styledLayer = cloneStyle(layer);
-
-    if (styledLayer.type === 'line') {
-      styledLayer.paint = {
-        ...(styledLayer.paint || {}),
-        'line-color': styledLayer['source-layer'] === 'boundary' ? '#c6d0de' : '#ffe680',
-        'line-opacity': 0.75,
-      };
-    }
-
-    if (styledLayer.type === 'symbol') {
-      styledLayer.paint = {
-        ...(styledLayer.paint || {}),
-        'text-color': '#f4f7ff',
-        'text-halo-color': '#102342',
-        'text-halo-width': 1.4,
-      };
-    }
-
-    return styledLayer;
-  });
-
+function getStyleDefinition(styleMode) {
+  const requestedStyle = MAP_STYLE_DEFINITIONS[styleMode] || MAP_STYLE_DEFINITIONS.terrain;
   return {
     version: 8,
-    name: 'TripPilot Terrain',
-    glyphs: baseStyle.glyphs,
-    sprite: baseStyle.sprite,
-    sources: {
-      ...baseStyle.sources,
-      satellite: {
-        type: 'raster',
-        tiles: [SATELLITE_TILE_URL],
-        tileSize: 256,
-        attribution: 'Esri World Imagery',
-      },
-    },
-    layers: [
-      {
-        id: 'satellite-base',
-        type: 'raster',
-        source: 'satellite',
-      },
-      ...overlays,
-    ],
+    name: `TripPilot ${requestedStyle.label}`,
+    sources: requestedStyle.sources,
+    layers: requestedStyle.layers,
+    attribution: requestedStyle.attribution,
   };
-}
-
-function buildDetailedStyle(baseStyle) {
-  const detailedStyle = cloneStyle(baseStyle);
-  const layers = detailedStyle.layers || [];
-
-  layers.forEach((layer) => {
-    if (layer.type === 'symbol') {
-      layer.paint = {
-        ...(layer.paint || {}),
-        'text-halo-color': '#ffffff',
-        'text-halo-width': 1.4,
-      };
-    }
-
-    if (layer.type === 'line' && layer['source-layer'] === 'transportation') {
-      layer.paint = {
-        ...(layer.paint || {}),
-        'line-opacity': 0.95,
-      };
-    }
-  });
-
-  layers.push(
-    {
-      id: 'trip-pilot-admin-province-outline',
-      type: 'line',
-      source: 'openmaptiles',
-      'source-layer': 'boundary',
-      filter: ['>=', ['to-number', ['get', 'admin_level'], 0], 4],
-      minzoom: 2,
-      paint: {
-        'line-color': '#6b7f99',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.45, 8, 1.1, 12, 1.8],
-        'line-opacity': 0.85,
-      },
-    },
-    {
-      id: 'trip-pilot-major-road-emphasis',
-      type: 'line',
-      source: 'openmaptiles',
-      'source-layer': 'transportation',
-      filter: ['in', ['get', 'class'], ['literal', ['motorway', 'trunk', 'primary', 'secondary']]],
-      minzoom: 4,
-      paint: {
-        'line-color': '#f59f00',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.7, 8, 2.4, 12, 5],
-        'line-opacity': 0.88,
-      },
-    },
-    {
-      id: 'trip-pilot-minor-road-emphasis',
-      type: 'line',
-      source: 'openmaptiles',
-      'source-layer': 'transportation',
-      filter: ['in', ['get', 'class'], ['literal', ['tertiary', 'street', 'minor', 'service']]],
-      minzoom: 8,
-      paint: {
-        'line-color': '#e4edf7',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.45, 11, 1.5, 14, 3],
-        'line-opacity': 0.92,
-      },
-    },
-    {
-      id: 'trip-pilot-trail-emphasis',
-      type: 'line',
-      source: 'openmaptiles',
-      'source-layer': 'transportation',
-      filter: ['in', ['get', 'class'], ['literal', ['path', 'track']]],
-      minzoom: 10,
-      paint: {
-        'line-color': '#5c6f82',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.3, 14, 1.6],
-        'line-dasharray': [1.2, 1.1],
-        'line-opacity': 0.95,
-      },
-    }
-  );
-
-  detailedStyle.layers = layers;
-  return detailedStyle;
-}
-
-async function getStyleDefinition(styleMode) {
-  const baseStyle = await getBaseVectorStyle();
-
-  if (styleMode === 'terrain') {
-    return buildTerrainStyle(baseStyle);
-  }
-
-  if (styleMode === 'detailed') {
-    return buildDetailedStyle(baseStyle);
-  }
-
-  return baseStyle;
 }
 
 async function createMap() {
@@ -205,13 +112,14 @@ async function createMap() {
     return false;
   }
 
-  const style = await getStyleDefinition(mapStyleSelect?.value || 'simple');
+  const style = cloneStyle(getStyleDefinition(mapStyleSelect?.value || 'terrain'));
   map = new maplibregl.Map({
     container: 'worldMap',
     style,
     center: [0, 20],
     zoom: 2,
     minZoom: 2,
+    maxZoom: 19,
     renderWorldCopies: true,
   });
 
@@ -250,7 +158,7 @@ async function setMapStyle(styleMode) {
   const requestId = ++styleUpdateRequestId;
 
   try {
-    const style = await getStyleDefinition(styleMode);
+    const style = cloneStyle(getStyleDefinition(styleMode));
 
     if (requestId !== styleUpdateRequestId) {
       return;
