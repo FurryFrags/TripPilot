@@ -22,6 +22,14 @@ This project is fully static and can run directly on GitHub Pages.
 
 You can open `index.html` from the repository root (it redirects automatically), open `static/index.html` directly, or serve files with any static file server.
 
+## Release checklist
+
+- Open deployed `app.js` in browser DevTools **Sources** and verify `createMap` instantiates `maplibregl.Map` (and does not use `L.map`).
+- Confirm static asset cache-busting query params are present in `static/index.html` (for example `app.js?v=<commit-sha>` and `styles.css?v=<commit-sha>`).
+- Purge CDN cache (if your hosting stack uses one), then hard-refresh the page (`Ctrl/Cmd+Shift+R`).
+- Compare production `app.js` checksum with repository `static/app.js` checksum before sign-off.
+- Verify the shipped JS bundle text contains `maplibregl.Map` and does not contain `L.map`.
+
 ## PollinationsClient – Free AI for Tour Recommendations
 
 ### Why this client
