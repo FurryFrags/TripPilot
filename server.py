@@ -155,64 +155,6 @@ def collect_live_pois(country: str, limit: int = 8) -> list[dict]:
     return pois
 
 
-def collect_live_map_content(country: str, bbox: str, zoom: float) -> list[dict]:
-    try:
-        west, south, east, north = [float(value) for value in bbox.split(",")]
-    except Exception:
-        return []
-
-    center_lat = (south + north) / 2
-    center_lng = (west + east) / 2
-    lat_extent = max(abs(north - south), 0.05)
-    lng_extent = max(abs(east - west), 0.05)
-    max_extent = max(lat_extent, lng_extent)
-
-    radius_by_zoom = max(1000, min(10000, int((120000 / max(zoom, 1.0)) * max_extent)))
-    search_url = (
-        "https://en.wikipedia.org/w/api.php?action=query&list=geosearch"
-        f"&gscoord={center_lat}|{center_lng}&gsradius={radius_by_zoom}"
-        "&gslimit=40&format=json&utf8=1"
-    )
-
-    payload = fetch_json(search_url)
-    results = payload.get("query", {}).get("geosearch", [])
-    features: list[dict] = []
-
-    for item in results:
-        title = item.get("title")
-        lat = item.get("lat")
-        lng = item.get("lon")
-        if not title or lat is None or lng is None:
-            continue
-
-        summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{quote(title)}"
-        try:
-            summary = fetch_json(summary_url)
-        except Exception:
-            continue
-
-        description = summary.get("extract") or ""
-        page_country = summary.get("description") or country
-        source = summary.get("content_urls", {}).get("desktop", {}).get("page", "")
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": {"type": "Point", "coordinates": [lng, lat]},
-                "properties": {
-                    "name": summary.get("title", title),
-                    "country": page_country,
-                    "description": description[:220],
-                    "source": source,
-                },
-            }
-        )
-
-        if len(features) >= 30:
-            break
-
-    return features
-
-
 def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
     if not pois:
         return []
@@ -380,28 +322,6 @@ class TripPilotHandler(BaseHTTPRequestHandler):
                     {"error": f"Unable to build AI tour right now: {exc}"},
                     status=HTTPStatus.BAD_GATEWAY,
                 )
-            return
-
-        if parsed.path == "/api/map-content":
-            query = parse_qs(parsed.query)
-            country = query.get("country", ["world"])[0].strip() or "world"
-            bbox = query.get("bbox", [""])[0].strip()
-            zoom_raw = query.get("zoom", ["2"])[0].strip()
-
-            if not bbox:
-                self._send_json({"error": "bbox is required"}, status=HTTPStatus.BAD_REQUEST)
-                return
-
-            try:
-                zoom = float(zoom_raw)
-            except ValueError:
-                zoom = 2.0
-
-            try:
-                features = collect_live_map_content(country=country, bbox=bbox, zoom=zoom)
-                self._send_json({"type": "FeatureCollection", "features": features})
-            except Exception as exc:
-                self._send_json({"error": f"Unable to load map content: {exc}"}, status=HTTPStatus.BAD_GATEWAY)
             return
 
         if parsed.path == "/":
