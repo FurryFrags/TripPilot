@@ -96,7 +96,7 @@ function cloneStyle(style) {
 }
 
 function getStyleDefinition(styleMode) {
-  const requestedStyle = MAP_STYLE_DEFINITIONS[styleMode] || MAP_STYLE_DEFINITIONS.terrain;
+  const requestedStyle = MAP_STYLE_DEFINITIONS[styleMode] || MAP_STYLE_DEFINITIONS.simple;
   return {
     version: 8,
     name: `TripPilot ${requestedStyle.label}`,
@@ -112,7 +112,7 @@ async function createMap() {
     return false;
   }
 
-  const style = cloneStyle(getStyleDefinition(mapStyleSelect?.value || 'terrain'));
+  const style = cloneStyle(getStyleDefinition(mapStyleSelect?.value || 'simple'));
   map = new maplibregl.Map({
     container: 'worldMap',
     style,
