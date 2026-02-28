@@ -12,6 +12,9 @@ let map;
 let markers = [];
 let mapInitialized = false;
 let baseVectorStyleCache;
+let mapReady = false;
+let queuedStyleMode = null;
+let styleUpdateRequestId = 0;
 
 function showMapUnavailableMessage() {
   statusText.textContent = 'Map assets failed to load. You can still generate an itinerary without the map.';
@@ -213,6 +216,23 @@ async function createMap() {
   });
 
   map.addControl(new maplibregl.NavigationControl(), 'top-right');
+  mapReady = false;
+
+  map.on('load', () => {
+    mapReady = true;
+    mapStyleSelect.disabled = false;
+
+    if (queuedStyleMode) {
+      const styleMode = queuedStyleMode;
+      queuedStyleMode = null;
+      setMapStyle(styleMode);
+    }
+  });
+
+  map.on('error', (errorEvent) => {
+    console.error('Map runtime error', errorEvent?.error || errorEvent);
+  });
+
   mapInitialized = true;
   return true;
 }
@@ -222,12 +242,33 @@ async function setMapStyle(styleMode) {
     return;
   }
 
+  if (!mapReady) {
+    queuedStyleMode = styleMode;
+    return;
+  }
+
+  const requestId = ++styleUpdateRequestId;
+
   try {
     const style = await getStyleDefinition(styleMode);
+
+    if (requestId !== styleUpdateRequestId) {
+      return;
+    }
+
     map.setStyle(style);
-    statusText.textContent = `Map style updated to ${styleMode}.`; 
+    mapReady = false;
+    mapStyleSelect.disabled = true;
+    map.once('idle', () => {
+      mapReady = true;
+      mapStyleSelect.disabled = false;
+    });
+
+    statusText.textContent = `Map style updated to ${styleMode}.`;
   } catch (error) {
     console.error('Failed to set style', error);
+    mapReady = true;
+    mapStyleSelect.disabled = false;
     statusText.textContent = 'Could not switch map style right now.';
   }
 }
@@ -387,11 +428,14 @@ async function buildClientSideTour(country) {
 }
 
 async function initApp() {
+  mapStyleSelect.disabled = true;
+
   try {
     await createMap();
   } catch (err) {
     console.error('MapLibre initialization failed', err);
     showMapUnavailableMessage();
+    mapStyleSelect.disabled = false;
   }
 
   generateTour();
