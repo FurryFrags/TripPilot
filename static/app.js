@@ -5,20 +5,19 @@ const mapInfo = document.getElementById('mapInfo');
 const statusText = document.getElementById('statusText');
 
 let map;
-let markerLayer;
+let markers = [];
 
 function createMap() {
-  map = L.map('worldMap', {
-    worldCopyJump: true,
+  map = new maplibregl.Map({
+    container: 'worldMap',
+    style: 'https://demotiles.maplibre.org/style.json',
+    center: [0, 20],
+    zoom: 2,
     minZoom: 2,
-  }).setView([20, 0], 2);
+    renderWorldCopies: true,
+  });
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 18,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  }).addTo(map);
-
-  markerLayer = L.layerGroup().addTo(map);
+  map.addControl(new maplibregl.NavigationControl(), 'top-right');
 }
 
 function updateMapInfo(poi) {
@@ -31,18 +30,28 @@ function updateMapInfo(poi) {
 }
 
 function renderMapPois(pois) {
-  markerLayer.clearLayers();
-  const bounds = [];
+  markers.forEach((marker) => marker.remove());
+  markers = [];
+  const bounds = new maplibregl.LngLatBounds();
 
   pois.forEach((poi) => {
-    const marker = L.marker([poi.lat, poi.lng], { title: poi.name });
-    marker.on('click', () => updateMapInfo(poi));
-    markerLayer.addLayer(marker);
-    bounds.push([poi.lat, poi.lng]);
+    const markerEl = document.createElement('button');
+    markerEl.type = 'button';
+    markerEl.className = 'maplibre-marker';
+    markerEl.title = poi.name;
+    markerEl.setAttribute('aria-label', poi.name);
+    markerEl.addEventListener('click', () => updateMapInfo(poi));
+
+    const marker = new maplibregl.Marker({ element: markerEl, anchor: 'center' })
+      .setLngLat([poi.lng, poi.lat])
+      .addTo(map);
+
+    markers.push(marker);
+    bounds.extend([poi.lng, poi.lat]);
   });
 
-  if (bounds.length) {
-    map.fitBounds(bounds, { padding: [40, 40], animate: true });
+  if (!bounds.isEmpty()) {
+    map.fitBounds(bounds, { padding: 40, animate: true });
   }
 }
 
