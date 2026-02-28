@@ -8,17 +8,6 @@ let map;
 let markers = [];
 let mapInitialized = false;
 
-const MAP_STYLES = [
-  {
-    name: 'CARTO Voyager',
-    url: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
-  },
-  {
-    name: 'MapLibre Demo',
-    url: 'https://demotiles.maplibre.org/style.json',
-  },
-];
-
 function showMapUnavailableMessage() {
   statusText.textContent = 'Map assets failed to load. You can still generate an itinerary without the map.';
   mapInfo.textContent = 'Map unavailable: map assets failed to load. Place details will appear here when map support is restored.';
@@ -32,31 +21,14 @@ function createMap() {
 
   map = new maplibregl.Map({
     container: 'worldMap',
-    style: MAP_STYLES[0].url,
+    style: 'https://demotiles.maplibre.org/style.json',
     center: [0, 20],
     zoom: 2,
     minZoom: 2,
-    maxZoom: 17,
     renderWorldCopies: true,
   });
 
   map.addControl(new maplibregl.NavigationControl(), 'top-right');
-
-  map.on('styleimagemissing', (event) => {
-    // Keep map rendering even if a third-party style references an unavailable sprite.
-    console.warn('Missing style image:', event.id);
-  });
-
-  map.on('error', (event) => {
-    const styleError = event?.error?.message || '';
-    const usingPrimaryStyle = map.getStyle()?.sprite?.includes('cartocdn');
-
-    if (usingPrimaryStyle && /style|sprite|source|tile/i.test(styleError)) {
-      console.warn('Primary basemap failed, switching to fallback style.', styleError);
-      map.setStyle(MAP_STYLES[1].url);
-    }
-  });
-
   mapInitialized = true;
   return true;
 }
@@ -91,26 +63,12 @@ function renderMapPois(pois) {
       .setLngLat([poi.lng, poi.lat])
       .addTo(map);
 
-    markerEl.addEventListener('click', () => {
-      map.flyTo({
-        center: [poi.lng, poi.lat],
-        zoom: Math.max(map.getZoom(), 10),
-        speed: 0.8,
-        curve: 1.2,
-        essential: true,
-      });
-    });
-
     markers.push(marker);
     bounds.extend([poi.lng, poi.lat]);
   });
 
   if (!bounds.isEmpty()) {
-    map.fitBounds(bounds, {
-      padding: { top: 40, bottom: 40, left: 40, right: 40 },
-      maxZoom: 6,
-      animate: true,
-    });
+    map.fitBounds(bounds, { padding: 40, animate: true });
   }
 }
 
