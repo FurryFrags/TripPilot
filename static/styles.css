@@ -320,6 +320,29 @@ body {
 
 .service-card h3 { margin: 0 0 .45rem; }
 .service-card p { margin: .35rem 0; color: var(--muted); }
+.day-dropdown,
+.location-toggle {
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: .6rem;
+  padding: .55rem .7rem;
+}
+
+.day-dropdown summary,
+.location-toggle summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.location-toggles {
+  display: grid;
+  gap: .55rem;
+  margin-top: .6rem;
+}
+
+.day-dropdown > p {
+  margin-top: .55rem;
+}
 .service-card button {
   margin-top: .6rem;
   width: 100%;

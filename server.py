@@ -167,10 +167,12 @@ def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
         for poi in pois
     ]
     prompt = (
-        "Generate a concise travel plan in JSON only. Output schema: "
-        "{\"days\":[{\"day\":1,\"theme\":\"...\",\"stops\":[\"Place A\",\"Place B\"],"
-        "\"notes\":\"...\"}]}. Build day-by-day itinerary for "
-        f"{country} from this web-sourced POI list: {json.dumps(places_payload)}"
+        "Output JSON only. No markdown, no commentary, and no keys outside this schema: "
+        "{\"days\":[{\"day\":1,\"theme\":\"...\",\"route\":\"Location A → Location B\","
+        "\"locations\":[{\"name\":\"...\",\"summary\":\"...\",\"history\":\"...\","
+        "\"precautions\":\"...\",\"bring\":\"...\",\"lookOutFor\":\"...\"}]}]}. "
+        "Each field must be brief and practical. Build a day-by-day itinerary for "
+        f"{country} using this POI list: {json.dumps(places_payload)}"
     )
 
     try:
@@ -187,12 +189,23 @@ def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
     days: list[dict] = []
     for index in range(0, len(pois), 2):
         chunk = pois[index : index + 2]
+        location_names = [place["name"] for place in chunk]
         days.append(
             {
                 "day": len(days) + 1,
                 "theme": f"Discover {country}",
-                "stops": [place["name"] for place in chunk],
-                "notes": "Auto-built from live web POI summaries.",
+                "route": " → ".join(location_names),
+                "locations": [
+                    {
+                        "name": place["name"],
+                        "summary": place.get("description", "")[:120] or "Local highlight.",
+                        "history": "Known local destination with cultural value.",
+                        "precautions": "Check weather and keep personal belongings secure.",
+                        "bring": "Water, comfortable shoes, and a charged phone.",
+                        "lookOutFor": "Busy periods, local rules, and transport timing.",
+                    }
+                    for place in chunk
+                ],
             }
         )
     return days
