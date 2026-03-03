@@ -132,6 +132,10 @@ body {
 }
 
 .planner-sidebar {
+  margin-top: 0;
+}
+
+.content .itinerary-sidebar {
   margin-top: 1rem;
 }
 
@@ -317,7 +321,7 @@ body {
 }
 
 .itinerary-canvas {
-  max-height: calc(100vh - 170px);
+  max-height: 360px;
   overflow-y: auto;
   overflow-x: hidden;
   background: #081b3d;
