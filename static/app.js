@@ -246,6 +246,7 @@ function normalizeLocation(location) {
     precautions: location?.precautions || 'No precautions provided.',
     bring: location?.bring || 'No packing notes provided.',
     lookOutFor: location?.lookOutFor || 'No watchouts provided.',
+    transportationMethod: location?.transportationMethod || 'Local bus + walking',
   };
 }
 
@@ -284,6 +285,7 @@ function renderItinerary(country, days, sourceLabel) {
         <p><strong>Precautions:</strong> ${location.precautions}</p>
         <p><strong>Bring:</strong> ${location.bring}</p>
         <p><strong>Look out for:</strong> ${location.lookOutFor}</p>
+        <p><strong>Transportation Method:</strong> ${location.transportationMethod}</p>
         ${locationImageLookup[location.name] ? `<img src="${locationImageLookup[location.name]}" alt="${location.name}" class="location-image" loading="lazy"/>` : ""}
       </details>
     `).join('');
@@ -444,7 +446,7 @@ async function requestAiTour(country) {
 async function buildClientSideTour(country) {
   const prompt = [
     'Output JSON only. No markdown, no commentary, no extra keys.',
-    'Schema: {"days":[{"day":1,"theme":"...","route":"Location A → Location B","locations":[{"name":"...","summary":"...","history":"...","precautions":"...","bring":"...","lookOutFor":"..."}]}]}.',
+    'Schema: {"days":[{"day":1,"theme":"...","route":"Location A → Location B","locations":[{"name":"...","summary":"...","history":"...","precautions":"...","bring":"...","lookOutFor":"...","transportationMethod":"..."}]}]}.',
     `Country: ${country}. Keep each field brief, practical, and standardized.`,
   ].join(' ');
 
