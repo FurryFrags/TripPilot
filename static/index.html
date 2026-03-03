@@ -9,7 +9,7 @@
       rel="stylesheet"
       href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
     />
-    <link rel="stylesheet" href="styles.css?v=ae67a4f" />
+    <link rel="stylesheet" href="styles.css?v=cc3b1c2" />
   </head>
   <body>
     <header class="topbar">
@@ -36,23 +36,23 @@
           <div id="mapInfo" class="map-info">No place selected.</div>
         </div>
 
-        <aside class="sidebar planner-sidebar">
-          <h2>Plan a Country Tour</h2>
-          <label for="countryInput">Country</label>
-          <input id="countryInput" type="text" value="Japan" />
-          <button id="generateTourBtn" type="button">Generate Live AI Tour</button>
-          <p class="hint">TripPilot fetches attractions from Wikipedia live and asks a free keyless AI to structure a day-by-day itinerary.</p>
-          <p id="statusText" class="map-info">Ready.</p>
+        <aside class="sidebar itinerary-sidebar">
+          <h2>Travel Itinerary</h2>
+          <div id="itinerary" class="service-grid itinerary-canvas"></div>
         </aside>
       </section>
 
-      <aside class="sidebar itinerary-sidebar">
-        <h2>Travel Itinerary</h2>
-        <div id="itinerary" class="service-grid itinerary-canvas"></div>
+      <aside class="sidebar planner-sidebar">
+        <h2>Plan a Country Tour</h2>
+        <label for="countryInput">Country</label>
+        <input id="countryInput" type="text" value="Japan" />
+        <button id="generateTourBtn" type="button">Generate Live AI Tour</button>
+        <p class="hint">TripPilot fetches attractions from Wikipedia live and asks a free keyless AI to structure a day-by-day itinerary.</p>
+        <p id="statusText" class="map-info">Ready.</p>
       </aside>
     </main>
 
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-    <script src="app.js?v=ae67a4f"></script>
+    <script src="app.js?v=cc3b1c2"></script>
   </body>
 </html>
