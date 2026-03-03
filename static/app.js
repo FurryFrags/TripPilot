@@ -220,20 +220,73 @@ function renderMapPois(pois) {
   }
 }
 
+function normalizeLocation(location) {
+  if (typeof location === 'string') {
+    return {
+      name: location,
+      summary: 'No summary provided.',
+      history: 'No history provided.',
+      precautions: 'No precautions provided.',
+      bring: 'No packing notes provided.',
+      lookOutFor: 'No watchouts provided.',
+    };
+  }
+
+  return {
+    name: location?.name || 'Unnamed location',
+    summary: location?.summary || 'No summary provided.',
+    history: location?.history || 'No history provided.',
+    precautions: location?.precautions || 'No precautions provided.',
+    bring: location?.bring || 'No packing notes provided.',
+    lookOutFor: location?.lookOutFor || 'No watchouts provided.',
+  };
+}
+
+function normalizeDay(day) {
+  const locations = Array.isArray(day?.locations)
+    ? day.locations.map(normalizeLocation)
+    : (Array.isArray(day?.stops) ? day.stops.map(normalizeLocation) : []);
+
+  const route = day?.route || (Array.isArray(day?.stops) ? day.stops.join(' → ') : 'Route not provided.');
+
+  return {
+    day: day?.day || '?',
+    theme: day?.theme || 'Explore the area',
+    route,
+    locations,
+  };
+}
+
 function renderItinerary(country, days, sourceLabel) {
   if (!days.length) {
     itinerary.innerHTML = '<div class="empty">No itinerary generated from live data yet. Try another country.</div>';
     return;
   }
 
-  itinerary.innerHTML = days.map((day) => `
+  itinerary.innerHTML = days.map((rawDay) => {
+    const day = normalizeDay(rawDay);
+    const locationToggles = day.locations.map((location) => `
+      <details class="location-toggle">
+        <summary>${location.name}</summary>
+        <p><strong>Summary:</strong> ${location.summary}</p>
+        <p><strong>History:</strong> ${location.history}</p>
+        <p><strong>Precautions:</strong> ${location.precautions}</p>
+        <p><strong>Bring:</strong> ${location.bring}</p>
+        <p><strong>Look out for:</strong> ${location.lookOutFor}</p>
+      </details>
+    `).join('');
+
+    return `
     <article class="service-card">
-      <h3>Day ${day.day}: ${day.theme}</h3>
-      <p><strong>Stops:</strong> ${day.stops.join(' → ')}</p>
-      <p>${day.notes}</p>
+      <details class="day-dropdown">
+        <summary>Day ${day.day}: ${day.theme}</summary>
+        <p><strong>Route:</strong> ${day.route}</p>
+        <div class="location-toggles">${locationToggles || '<p>No locations listed.</p>'}</div>
+      </details>
       <p>Source engine: ${sourceLabel}</p>
     </article>
-  `).join('');
+  `;
+  }).join('');
 
   statusText.textContent = `Generated ${days.length}-day ${country} tour.`;
 }
@@ -307,9 +360,9 @@ async function requestAiTour(country) {
 
 async function buildClientSideTour(country) {
   const prompt = [
-    'Generate travel itinerary JSON only.',
-    'Schema: {"days":[{"day":1,"theme":"...","stops":["..."],"notes":"..."}]}.',
-    `Country: ${country}. Keep it concise and practical for tourists.`,
+    'Output JSON only. No markdown, no commentary, no extra keys.',
+    'Schema: {"days":[{"day":1,"theme":"...","route":"Location A → Location B","locations":[{"name":"...","summary":"...","history":"...","precautions":"...","bring":"...","lookOutFor":"..."}]}]}.',
+    `Country: ${country}. Keep each field brief, practical, and standardized.`,
   ].join(' ');
 
   const res = await fetch(`https://text.pollinations.ai/${encodeURIComponent(prompt)}`);
