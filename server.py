@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import ssl
 from ipaddress import ip_address
 from http import HTTPStatus
@@ -226,6 +227,135 @@ def build_transportation_lookup(pois: list[dict], country: str) -> dict[str, str
             continue
         methods[name] = summarize_transport_method(name, country)
     return methods
+
+
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    radius_km = 6371.0
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(d_lat / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(d_lon / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return radius_km * c
+
+
+def line_midpoint(start: tuple[float, float], end: tuple[float, float]) -> tuple[float, float]:
+    return ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
+
+
+def curved_path(start: tuple[float, float], end: tuple[float, float], arc_strength: float = 0.18) -> list[list[float]]:
+    sx, sy = start
+    ex, ey = end
+    mx, my = line_midpoint(start, end)
+    dx = ex - sx
+    dy = ey - sy
+    length = math.hypot(dx, dy)
+    if not length:
+        return [[sx, sy], [ex, ey]]
+
+    nx = -dy / length
+    ny = dx / length
+    control = (mx + nx * length * arc_strength, my + ny * length * arc_strength)
+
+    points: list[list[float]] = []
+    for step in range(0, 13):
+        t = step / 12
+        # Quadratic Bezier between start -> control -> end.
+        x = (1 - t) ** 2 * sx + 2 * (1 - t) * t * control[0] + t**2 * ex
+        y = (1 - t) ** 2 * sy + 2 * (1 - t) * t * control[1] + t**2 * ey
+        points.append([x, y])
+    return points
+
+
+def build_map_features(country: str, pois: list[dict]) -> dict:
+    metro_features: list[dict] = []
+    road_features: list[dict] = []
+    highway_features: list[dict] = []
+    label_features: list[dict] = []
+
+    if len(pois) < 2:
+        return {
+            "metroLines": {"type": "FeatureCollection", "features": metro_features},
+            "roads": {"type": "FeatureCollection", "features": road_features},
+            "highways": {"type": "FeatureCollection", "features": highway_features},
+            "labels": {"type": "FeatureCollection", "features": label_features},
+        }
+
+    core_pois = pois[: min(5, len(pois))]
+    for index in range(len(core_pois) - 1):
+        start = core_pois[index]
+        end = core_pois[index + 1]
+        line_name = f"{country} Metro M{index + 1}"
+        coordinates = curved_path((start["lng"], start["lat"]), (end["lng"], end["lat"]), 0.26)
+        metro_features.append(
+            {
+                "type": "Feature",
+                "properties": {
+                    "label": line_name,
+                    "from": start["name"],
+                    "to": end["name"],
+                    "network": "metro",
+                },
+                "geometry": {"type": "LineString", "coordinates": coordinates},
+            }
+        )
+
+        mid = line_midpoint((start["lng"], start["lat"]), (end["lng"], end["lat"]))
+        label_features.append(
+            {
+                "type": "Feature",
+                "properties": {"label": line_name, "network": "metro"},
+                "geometry": {"type": "Point", "coordinates": [mid[0], mid[1]]},
+            }
+        )
+
+    for index in range(len(pois) - 1):
+        start = pois[index]
+        end = pois[index + 1]
+        distance = haversine_km(start["lat"], start["lng"], end["lat"], end["lng"])
+
+        feature_target = road_features if distance <= 120 else highway_features
+        network = "road" if distance <= 120 else "highway"
+        label = f"{network.title()} {index + 1}: {start['name']} → {end['name']}"
+        feature_target.append(
+            {
+                "type": "Feature",
+                "properties": {
+                    "label": label,
+                    "distanceKm": round(distance, 1),
+                    "from": start["name"],
+                    "to": end["name"],
+                    "network": network,
+                },
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[start["lng"], start["lat"]], [end["lng"], end["lat"]],
+                    ],
+                },
+            }
+        )
+
+        mid = line_midpoint((start["lng"], start["lat"]), (end["lng"], end["lat"]))
+        label_features.append(
+            {
+                "type": "Feature",
+                "properties": {
+                    "label": f"{network.title()} {index + 1}",
+                    "network": network,
+                    "distanceKm": round(distance, 1),
+                },
+                "geometry": {"type": "Point", "coordinates": [mid[0], mid[1]]},
+            }
+        )
+
+    return {
+        "metroLines": {"type": "FeatureCollection", "features": metro_features},
+        "roads": {"type": "FeatureCollection", "features": road_features},
+        "highways": {"type": "FeatureCollection", "features": highway_features},
+        "labels": {"type": "FeatureCollection", "features": label_features},
+    }
 
 
 def collect_live_pois(country: str, limit: int = 8) -> list[dict]:
@@ -459,11 +589,13 @@ class TripPilotHandler(BaseHTTPRequestHandler):
             try:
                 pois = collect_live_pois(country)
                 days = generate_tour_plan(country, pois)
+                map_features = build_map_features(country, pois)
                 self._send_json(
                     {
                         "country": country,
                         "pois": pois,
                         "days": days,
+                        "mapFeatures": map_features,
                         "source": "Wikipedia live search + Pollinations AI (no API key)",
                     }
                 )

@@ -86,6 +86,21 @@ let queuedStyleMode = null;
 let styleUpdateRequestId = 0;
 let locationImageLookup = {};
 let countryImageUrl = "";
+let latestMapFeatures = null;
+
+const MAP_NETWORK_SOURCE_IDS = {
+  metro: 'trip-metro-source',
+  road: 'trip-road-source',
+  highway: 'trip-highway-source',
+  labels: 'trip-network-labels-source',
+};
+
+const MAP_NETWORK_LAYER_IDS = {
+  metro: 'trip-metro-layer',
+  road: 'trip-road-layer',
+  highway: 'trip-highway-layer',
+  labels: 'trip-network-labels-layer',
+};
 
 function showMapUnavailableMessage() {
   statusText.textContent = 'Map assets failed to load. You can still generate an itinerary without the map.';
@@ -131,6 +146,7 @@ async function createMap() {
   map.on('load', () => {
     mapReady = true;
     mapStyleSelect.disabled = false;
+    renderMapNetwork(latestMapFeatures);
 
     if (queuedStyleMode) {
       const styleMode = queuedStyleMode;
@@ -172,6 +188,7 @@ async function setMapStyle(styleMode) {
     map.once('idle', () => {
       mapReady = true;
       mapStyleSelect.disabled = false;
+      renderMapNetwork(latestMapFeatures);
     });
 
     statusText.textContent = `Map style updated to ${styleMode}.`;
@@ -225,6 +242,91 @@ function renderMapPois(pois) {
   if (!bounds.isEmpty()) {
     map.fitBounds(bounds, { padding: 40, animate: true });
   }
+}
+
+
+function removeNetworkLayers() {
+  if (!map) return;
+
+  Object.values(MAP_NETWORK_LAYER_IDS).forEach((layerId) => {
+    if (map.getLayer(layerId)) map.removeLayer(layerId);
+  });
+
+  Object.values(MAP_NETWORK_SOURCE_IDS).forEach((sourceId) => {
+    if (map.getSource(sourceId)) map.removeSource(sourceId);
+  });
+}
+
+function renderMapNetwork(mapFeatures) {
+  if (!mapInitialized || !map || !window.maplibregl || !mapReady) {
+    latestMapFeatures = mapFeatures;
+    return;
+  }
+
+  latestMapFeatures = mapFeatures;
+  removeNetworkLayers();
+
+  if (!mapFeatures) return;
+
+  const metroLines = mapFeatures.metroLines || { type: 'FeatureCollection', features: [] };
+  const roads = mapFeatures.roads || { type: 'FeatureCollection', features: [] };
+  const highways = mapFeatures.highways || { type: 'FeatureCollection', features: [] };
+  const labels = mapFeatures.labels || { type: 'FeatureCollection', features: [] };
+
+  map.addSource(MAP_NETWORK_SOURCE_IDS.metro, { type: 'geojson', data: metroLines });
+  map.addLayer({
+    id: MAP_NETWORK_LAYER_IDS.metro,
+    type: 'line',
+    source: MAP_NETWORK_SOURCE_IDS.metro,
+    paint: {
+      'line-color': '#8b5cf6',
+      'line-width': 3,
+      'line-opacity': 0.9,
+    },
+  });
+
+  map.addSource(MAP_NETWORK_SOURCE_IDS.road, { type: 'geojson', data: roads });
+  map.addLayer({
+    id: MAP_NETWORK_LAYER_IDS.road,
+    type: 'line',
+    source: MAP_NETWORK_SOURCE_IDS.road,
+    paint: {
+      'line-color': '#f59e0b',
+      'line-width': 2.5,
+      'line-opacity': 0.85,
+      'line-dasharray': [2, 1],
+    },
+  });
+
+  map.addSource(MAP_NETWORK_SOURCE_IDS.highway, { type: 'geojson', data: highways });
+  map.addLayer({
+    id: MAP_NETWORK_LAYER_IDS.highway,
+    type: 'line',
+    source: MAP_NETWORK_SOURCE_IDS.highway,
+    paint: {
+      'line-color': '#ef4444',
+      'line-width': 3.5,
+      'line-opacity': 0.85,
+    },
+  });
+
+  map.addSource(MAP_NETWORK_SOURCE_IDS.labels, { type: 'geojson', data: labels });
+  map.addLayer({
+    id: MAP_NETWORK_LAYER_IDS.labels,
+    type: 'symbol',
+    source: MAP_NETWORK_SOURCE_IDS.labels,
+    layout: {
+      'text-field': ['get', 'label'],
+      'text-size': 11,
+      'text-offset': [0, 0.75],
+      'text-anchor': 'top',
+    },
+    paint: {
+      'text-color': '#0f172a',
+      'text-halo-color': '#ffffff',
+      'text-halo-width': 1,
+    },
+  });
 }
 
 function normalizeLocation(location) {
@@ -327,6 +429,7 @@ async function generateTour() {
     countryImageUrl = imageData.countryImage || "";
 
     renderMapPois(data.pois || []);
+    renderMapNetwork(data.mapFeatures || null);
     renderItinerary(data.country, data.days || [], data.source || 'live web data');
     statusText.textContent = mapInitialized
       ? `Done: ${data.country} plan created from live internet sources.`
@@ -469,6 +572,7 @@ async function buildClientSideTour(country) {
     country,
     days: parsed.days,
     pois: [],
+    mapFeatures: null,
     source: 'Pollinations AI (browser fallback)',
   };
 }
