@@ -190,65 +190,6 @@ function updateMapInfo(poi) {
   mapInfo.innerHTML = `<strong>${poi.name}</strong><br/>📍 ${poi.country}<br/>${poi.description}<br/><a href="${poi.source}" target="_blank" rel="noreferrer">Source</a>`;
 }
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
-function toArray(value) {
-  if (!value) return [];
-  return Array.isArray(value) ? value : [value];
-}
-
-function firstSentence(text, fallback) {
-  if (!text) return fallback;
-  const normalized = String(text).replace(/\s+/g, ' ').trim();
-  const match = normalized.match(/^(.+?[.!?])\s/);
-  return (match?.[1] || normalized).slice(0, 170);
-}
-
-function buildLocationCard(location, index) {
-  const connectionText = location.connection || 'Use local public transport or a short taxi ride to reach the next stop.';
-  return `
-    <details class="location-toggle">
-      <summary>${index + 1}. ${escapeHtml(location.name)}</summary>
-      <div class="location-body">
-        <p><strong>Area snapshot:</strong> ${escapeHtml(location.summary)}</p>
-        <p><strong>History:</strong> ${escapeHtml(location.history)}</p>
-        <p><strong>Precautions:</strong> ${escapeHtml(location.precautions)}</p>
-        <p><strong>Bring / watch out:</strong> ${escapeHtml(location.bring)}</p>
-        <p><strong>Connection to next stop:</strong> ${escapeHtml(connectionText)}</p>
-      </div>
-    </details>
-  `;
-}
-
-function normalizeDayPlan(day, poisByName) {
-  const stops = toArray(day.stops).map((stop) => String(stop).trim()).filter(Boolean);
-  const locations = (Array.isArray(day.locations) && day.locations.length ? day.locations : stops.map((stop) => ({ name: stop }))).map((location, index, arr) => {
-    const name = String(location.name || location.stop || stops[index] || `Stop ${index + 1}`);
-    const poi = poisByName.get(name.toLowerCase());
-    const summary = location.summary || location.description || firstSentence(poi?.description, `${name} is a key highlight for this day.`);
-    const history = location.history || `Known for local culture and landmarks around ${name}.`;
-    const precautions = location.precautions || day.precautions || 'Keep valuables secure in busy areas and verify local opening hours.';
-    const bring = location.bring || day.bring || 'Bring water, comfortable shoes, and a charged phone for navigation.';
-    const connection = location.connection || day.route?.[index] || day.connections?.[index] || (arr[index + 1] ? `From ${name} continue toward ${arr[index + 1].name || arr[index + 1]} by train/bus.` : 'End of day route.');
-
-    return { name, summary, history, precautions, bring, connection };
-  });
-
-  return {
-    day: day.day || 1,
-    theme: day.theme || `Day ${day.day || 1} Highlights`,
-    overview: day.notes || day.overview || 'Balanced day with culture, food, and sightseeing.',
-    locations,
-  };
-}
-
 function renderMapPois(pois) {
   if (!mapInitialized || !map || !window.maplibregl) {
     return;
@@ -285,21 +226,12 @@ function renderItinerary(country, days, sourceLabel) {
     return;
   }
 
-  const poisByName = new Map((window.__tripPois || []).map((poi) => [String(poi.name).toLowerCase(), poi]));
-  const normalizedDays = days.map((day) => normalizeDayPlan(day, poisByName));
-
-  itinerary.innerHTML = normalizedDays.map((day) => `
-    <article class="service-card itinerary-day-card">
-      <details class="day-dropdown">
-        <summary>Day ${escapeHtml(day.day)} • ${escapeHtml(day.theme)}</summary>
-        <div class="day-body">
-          <p class="day-overview">${escapeHtml(day.overview)}</p>
-          <div class="location-list">
-            ${day.locations.map((location, index) => buildLocationCard(location, index)).join('')}
-          </div>
-          <p class="itinerary-source">Source engine: ${escapeHtml(sourceLabel)}</p>
-        </div>
-      </details>
+  itinerary.innerHTML = days.map((day) => `
+    <article class="service-card">
+      <h3>Day ${day.day}: ${day.theme}</h3>
+      <p><strong>Stops:</strong> ${day.stops.join(' → ')}</p>
+      <p>${day.notes}</p>
+      <p>Source engine: ${sourceLabel}</p>
     </article>
   `).join('');
 
@@ -320,7 +252,6 @@ async function generateTour() {
 
   try {
     const data = await requestAiTour(country);
-    window.__tripPois = data.pois || [];
 
     renderMapPois(data.pois || []);
     renderItinerary(data.country, data.days || [], data.source || 'live web data');
@@ -377,8 +308,8 @@ async function requestAiTour(country) {
 async function buildClientSideTour(country) {
   const prompt = [
     'Generate travel itinerary JSON only.',
-    'Schema: {"days":[{"day":1,"theme":"...","overview":"...","precautions":"...","bring":"...","locations":[{"name":"...","summary":"...","history":"...","precautions":"...","bring":"...","connection":"..."}]}]}.',
-    `Country: ${country}. Keep each location summary very brief and practical for tourists.`,
+    'Schema: {"days":[{"day":1,"theme":"...","stops":["..."],"notes":"..."}]}.',
+    `Country: ${country}. Keep it concise and practical for tourists.`,
   ].join(' ');
 
   const res = await fetch(`https://text.pollinations.ai/${encodeURIComponent(prompt)}`);
@@ -415,7 +346,7 @@ async function initApp() {
     mapStyleSelect.disabled = false;
   }
 
-  itinerary.innerHTML = '<div class="empty">Choose a country and click “Generate Live AI Tour” to build your itinerary.</div>';
+  generateTour();
 }
 
 mapStyleSelect?.addEventListener('change', (event) => {
