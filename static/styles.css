@@ -198,11 +198,18 @@ body {
 }
 
 .maplibre-marker {
-  width: 14px;
-  height: 14px;
+  width: 24px;
+  height: 24px;
   border-radius: 999px;
   border: 2px solid #ffffff;
   background: #2f7dff;
+  color: #ffffff;
+  font-size: .75rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   box-shadow: 0 0 0 2px rgba(10, 21, 43, .32);
   cursor: pointer;
 }

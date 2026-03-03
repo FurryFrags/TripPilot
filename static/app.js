@@ -102,6 +102,17 @@ const MAP_NETWORK_LAYER_IDS = {
   labels: 'trip-network-labels-layer',
 };
 
+const MAP_ITINERARY_SOURCE_IDS = {
+  places: 'trip-itinerary-places-source',
+  route: 'trip-itinerary-route-source',
+};
+
+const MAP_ITINERARY_LAYER_IDS = {
+  places: 'trip-itinerary-places-layer',
+  placeLabels: 'trip-itinerary-place-labels-layer',
+  route: 'trip-itinerary-route-layer',
+};
+
 function showMapUnavailableMessage() {
   statusText.textContent = 'Map assets failed to load. You can still generate an itinerary without the map.';
   mapInfo.textContent = 'Map unavailable: map assets failed to load. Place details will appear here when map support is restored.';
@@ -219,14 +230,19 @@ function renderMapPois(pois) {
     return;
   }
 
+  removeItineraryLayers();
   markers.forEach((marker) => marker.remove());
   markers = [];
   const bounds = new maplibregl.LngLatBounds();
 
-  pois.forEach((poi) => {
+  const placeFeatures = [];
+  const routeCoordinates = [];
+
+  pois.forEach((poi, index) => {
     const markerEl = document.createElement('button');
     markerEl.type = 'button';
     markerEl.className = 'maplibre-marker';
+    markerEl.textContent = String(index + 1);
     markerEl.title = poi.name;
     markerEl.setAttribute('aria-label', poi.name);
     markerEl.addEventListener('click', () => updateMapInfo(poi));
@@ -237,10 +253,109 @@ function renderMapPois(pois) {
 
     markers.push(marker);
     bounds.extend([poi.lng, poi.lat]);
+    routeCoordinates.push([poi.lng, poi.lat]);
+    placeFeatures.push({
+      type: 'Feature',
+      properties: {
+        name: poi.name,
+        sequence: index + 1,
+      },
+      geometry: {
+        type: 'Point',
+        coordinates: [poi.lng, poi.lat],
+      },
+    });
   });
+
+  renderItineraryOnMap(placeFeatures, routeCoordinates);
 
   if (!bounds.isEmpty()) {
     map.fitBounds(bounds, { padding: 40, animate: true });
+  }
+}
+
+function removeItineraryLayers() {
+  if (!map) return;
+
+  Object.values(MAP_ITINERARY_LAYER_IDS).forEach((layerId) => {
+    if (map.getLayer(layerId)) map.removeLayer(layerId);
+  });
+
+  Object.values(MAP_ITINERARY_SOURCE_IDS).forEach((sourceId) => {
+    if (map.getSource(sourceId)) map.removeSource(sourceId);
+  });
+}
+
+function renderItineraryOnMap(placeFeatures, routeCoordinates) {
+  if (!mapReady || !map) {
+    return;
+  }
+
+  const places = {
+    type: 'FeatureCollection',
+    features: placeFeatures,
+  };
+
+  map.addSource(MAP_ITINERARY_SOURCE_IDS.places, {
+    type: 'geojson',
+    data: places,
+  });
+
+  map.addLayer({
+    id: MAP_ITINERARY_LAYER_IDS.places,
+    type: 'circle',
+    source: MAP_ITINERARY_SOURCE_IDS.places,
+    paint: {
+      'circle-radius': 7,
+      'circle-color': '#2563eb',
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#ffffff',
+    },
+  });
+
+  map.addLayer({
+    id: MAP_ITINERARY_LAYER_IDS.placeLabels,
+    type: 'symbol',
+    source: MAP_ITINERARY_SOURCE_IDS.places,
+    layout: {
+      'text-field': ['concat', ['to-string', ['get', 'sequence']], '. ', ['get', 'name']],
+      'text-size': 11,
+      'text-anchor': 'top',
+      'text-offset': [0, 1.1],
+    },
+    paint: {
+      'text-color': '#0f172a',
+      'text-halo-color': '#ffffff',
+      'text-halo-width': 1.2,
+    },
+  });
+
+  if (routeCoordinates.length > 1) {
+    map.addSource(MAP_ITINERARY_SOURCE_IDS.route, {
+      type: 'geojson',
+      data: {
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          properties: { kind: 'itinerary-route' },
+          geometry: {
+            type: 'LineString',
+            coordinates: routeCoordinates,
+          },
+        }],
+      },
+    });
+
+    map.addLayer({
+      id: MAP_ITINERARY_LAYER_IDS.route,
+      type: 'line',
+      source: MAP_ITINERARY_SOURCE_IDS.route,
+      paint: {
+        'line-color': '#22d3ee',
+        'line-width': 4,
+        'line-opacity': 0.9,
+      },
+    });
   }
 }
 
