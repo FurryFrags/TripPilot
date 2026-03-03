@@ -7,7 +7,7 @@ from ipaddress import ip_address
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 from urllib.request import Request, urlopen
 
 HOST = "0.0.0.0"
@@ -103,6 +103,43 @@ SERVICES = [
 USER_AGENT = "TripPilot/1.0 (+https://example.local)"
 
 
+def wikipedia_summary(title: str) -> dict:
+    summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{quote(title)}"
+    data = fetch_json(summary_url)
+    return data if isinstance(data, dict) else {}
+
+
+def extract_image_url(summary: dict) -> str:
+    thumbnail = summary.get("thumbnail") or {}
+    if thumbnail.get("source"):
+        return thumbnail["source"]
+
+    original = summary.get("originalimage") or {}
+    return original.get("source", "")
+
+
+def fetch_location_images(country: str, locations: list[str]) -> dict:
+    normalized_locations = [name.strip() for name in locations if name and name.strip()]
+    unique_locations = list(dict.fromkeys(normalized_locations))[:20]
+
+    country_image = ""
+    try:
+        country_summary = wikipedia_summary(country)
+        country_image = extract_image_url(country_summary)
+    except Exception:
+        country_image = ""
+
+    location_images: dict[str, str] = {}
+    for location in unique_locations:
+        try:
+            summary = wikipedia_summary(location)
+            location_images[location] = extract_image_url(summary)
+        except Exception:
+            location_images[location] = ""
+
+    return {"country": country, "countryImage": country_image, "locationImages": location_images}
+
+
 def fetch_json(url: str, *, expect_json: bool = True) -> dict | list | str:
     request = Request(url, headers={"User-Agent": USER_AGENT})
     context = ssl.create_default_context()
@@ -126,9 +163,8 @@ def collect_live_pois(country: str, limit: int = 8) -> list[dict]:
         title = item.get("title")
         if not title:
             continue
-        summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{quote(title)}"
         try:
-            summary = fetch_json(summary_url)
+            summary = wikipedia_summary(title)
         except Exception:
             continue
 
@@ -141,6 +177,7 @@ def collect_live_pois(country: str, limit: int = 8) -> list[dict]:
         pois.append(
             {
                 "name": summary.get("title", title),
+                "image": extract_image_url(summary),
                 "city": country,
                 "country": country,
                 "description": summary.get("extract", "")[:320],
@@ -310,6 +347,19 @@ class TripPilotHandler(BaseHTTPRequestHandler):
                 )
             ]
             self._send_json(filtered)
+            return
+
+        if parsed.path == "/api/location-images":
+            query = parse_qs(parsed.query)
+            country = query.get("country", [""])[0].strip()
+            if not country:
+                self._send_json({"error": "country is required"}, status=HTTPStatus.BAD_REQUEST)
+                return
+
+            raw_locations = query.get("location", [])
+            locations = [unquote(name).strip() for name in raw_locations if name.strip()]
+            images = fetch_location_images(country, locations)
+            self._send_json(images)
             return
 
         if parsed.path == "/api/ai-tour":

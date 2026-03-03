@@ -84,6 +84,8 @@ let mapInitialized = false;
 let mapReady = false;
 let queuedStyleMode = null;
 let styleUpdateRequestId = 0;
+let locationImageLookup = {};
+let countryImageUrl = "";
 
 function showMapUnavailableMessage() {
   statusText.textContent = 'Map assets failed to load. You can still generate an itinerary without the map.';
@@ -187,7 +189,12 @@ function updateMapInfo(poi) {
     return;
   }
 
-  mapInfo.innerHTML = `<strong>${poi.name}</strong><br/>📍 ${poi.country}<br/>${poi.description}<br/><a href="${poi.source}" target="_blank" rel="noreferrer">Source</a>`;
+  const imageUrl = poi.image || locationImageLookup[poi.name] || '';
+  const imageMarkup = imageUrl
+    ? `<img src="${imageUrl}" alt="${poi.name}" class="map-info-image" loading="lazy"/>`
+    : '';
+
+  mapInfo.innerHTML = `<strong>${poi.name}</strong><br/>📍 ${poi.country}<br/>${poi.description}<br/><a href="${poi.source}" target="_blank" rel="noreferrer">Source</a>${imageMarkup}`;
 }
 
 function renderMapPois(pois) {
@@ -263,7 +270,11 @@ function renderItinerary(country, days, sourceLabel) {
     return;
   }
 
-  itinerary.innerHTML = days.map((rawDay) => {
+  const countryImageMarkup = countryImageUrl
+    ? `<img src="${countryImageUrl}" alt="${country}" class="country-image" loading="lazy"/>`
+    : '';
+
+  itinerary.innerHTML = `${countryImageMarkup}` + days.map((rawDay) => {
     const day = normalizeDay(rawDay);
     const locationToggles = day.locations.map((location) => `
       <details class="location-toggle">
@@ -273,6 +284,7 @@ function renderItinerary(country, days, sourceLabel) {
         <p><strong>Precautions:</strong> ${location.precautions}</p>
         <p><strong>Bring:</strong> ${location.bring}</p>
         <p><strong>Look out for:</strong> ${location.lookOutFor}</p>
+        ${locationImageLookup[location.name] ? `<img src="${locationImageLookup[location.name]}" alt="${location.name}" class="location-image" loading="lazy"/>` : ""}
       </details>
     `).join('');
 
@@ -299,12 +311,18 @@ async function generateTour() {
     ? `Generating live AI tour for ${country}...`
     : `Generating live AI tour for ${country}... (map unavailable: assets failed to load)`;
   itinerary.innerHTML = '<div class="empty">Thinking...</div>';
+  locationImageLookup = {};
+  countryImageUrl = '';
   if (mapInitialized) {
     updateMapInfo(null);
   }
 
   try {
     const data = await requestAiTour(country);
+    const locationNames = collectLocationNames(data.days || [], data.pois || []);
+    const imageData = await requestLocationImages(data.country, locationNames);
+    locationImageLookup = imageData.locationImages || {};
+    countryImageUrl = imageData.countryImage || "";
 
     renderMapPois(data.pois || []);
     renderItinerary(data.country, data.days || [], data.source || 'live web data');
@@ -317,6 +335,71 @@ async function generateTour() {
       ? 'Unable to generate a live AI tour right now.'
       : 'Unable to generate a live AI tour right now. (Map unavailable: assets failed to load)';
   }
+}
+
+
+function collectLocationNames(days, pois) {
+  const locationNames = new Set();
+
+  days.forEach((day) => {
+    const normalizedDay = normalizeDay(day);
+    normalizedDay.locations.forEach((location) => {
+      if (location.name) locationNames.add(location.name);
+    });
+  });
+
+  (pois || []).forEach((poi) => {
+    if (poi?.name) locationNames.add(poi.name);
+  });
+
+  return [...locationNames];
+}
+
+function getLocationImageEndpoints(country, locationNames) {
+  const params = new URLSearchParams();
+  params.set('country', country);
+  locationNames.forEach((name) => params.append('location', name));
+
+  const endpoints = [`/api/location-images?${params.toString()}`];
+
+  if (window.location.protocol.startsWith('http')) {
+    const localApi = `${window.location.protocol}//${window.location.hostname}:8000/api/location-images?${params.toString()}`;
+    if (!endpoints.includes(localApi)) endpoints.push(localApi);
+  }
+
+  return endpoints;
+}
+
+async function requestLocationImages(country, locationNames) {
+  if (!country) return { countryImage: '', locationImages: {} };
+
+  for (const url of getLocationImageEndpoints(country, locationNames)) {
+    try {
+      const res = await fetch(url);
+      const bodyText = await res.text();
+      let data;
+
+      try {
+        data = JSON.parse(bodyText);
+      } catch {
+        continue;
+      }
+
+      if (!res.ok) {
+        if (res.status === 404) continue;
+        throw new Error(data.error || 'Failed to fetch images');
+      }
+
+      return {
+        countryImage: data.countryImage || '',
+        locationImages: data.locationImages || {},
+      };
+    } catch {
+      // Try the next endpoint.
+    }
+  }
+
+  return { countryImage: '', locationImages: {} };
 }
 
 function getAiTourEndpoints(country) {
