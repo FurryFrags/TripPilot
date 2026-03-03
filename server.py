@@ -102,6 +102,17 @@ SERVICES = [
 
 USER_AGENT = "TripPilot/1.0 (+https://example.local)"
 
+TRANSPORT_KEYWORDS = {
+    "Metro/Subway": ("metro", "subway", "underground", "tube"),
+    "Rail/Train": ("rail", "train", "tram", "light rail"),
+    "Bus": ("bus", "bus rapid transit", "brt", "coach"),
+    "Ferry/Boat": ("ferry", "boat", "waterbus", "water taxi"),
+    "Cable Car/Funicular": ("cable car", "funicular", "gondola lift"),
+    "Walking": ("walk", "pedestrian", "on foot"),
+    "Cycling": ("bike", "bicycle", "cycling"),
+    "Taxi/Rideshare": ("taxi", "rideshare", "uber", "grab"),
+}
+
 
 def wikipedia_summary(title: str) -> dict:
     summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{quote(title)}"
@@ -148,6 +159,73 @@ def fetch_json(url: str, *, expect_json: bool = True) -> dict | list | str:
     if expect_json:
         return json.loads(text)
     return text
+
+
+def fetch_wikivoyage_extract(title: str) -> str:
+    api_url = (
+        "https://en.wikivoyage.org/w/api.php?action=query&prop=extracts"
+        f"&explaintext=1&format=json&titles={quote(title)}"
+    )
+    payload = fetch_json(api_url)
+    pages = payload.get("query", {}).get("pages", {})
+    for page in pages.values():
+        if isinstance(page, dict) and page.get("extract"):
+            return page["extract"]
+    return ""
+
+
+def summarize_transport_method(location_name: str, country: str) -> str:
+    titles_to_try = [
+        f"Transport in {location_name}",
+        f"Transportation in {location_name}",
+        location_name,
+        f"Transport in {country}",
+    ]
+    corpus_parts: list[str] = []
+
+    for title in titles_to_try:
+        try:
+            summary = wikipedia_summary(title)
+        except Exception:
+            continue
+
+        extract = summary.get("extract")
+        if extract:
+            corpus_parts.append(extract)
+
+    try:
+        wikivoyage_text = fetch_wikivoyage_extract(location_name)
+        if wikivoyage_text:
+            corpus_parts.append(wikivoyage_text[:2400])
+    except Exception:
+        pass
+
+    corpus = " ".join(corpus_parts).lower()
+    if not corpus:
+        return "Local bus + walking"
+
+    scores: dict[str, int] = {}
+    for label, keywords in TRANSPORT_KEYWORDS.items():
+        score = sum(corpus.count(keyword) for keyword in keywords)
+        if score:
+            scores[label] = score
+
+    if not scores:
+        return "Local bus + walking"
+
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    top_labels = [name for name, _ in ranked[:2]]
+    return " + ".join(top_labels)
+
+
+def build_transportation_lookup(pois: list[dict], country: str) -> dict[str, str]:
+    methods: dict[str, str] = {}
+    for poi in pois:
+        name = poi.get("name")
+        if not name or name in methods:
+            continue
+        methods[name] = summarize_transport_method(name, country)
+    return methods
 
 
 def collect_live_pois(country: str, limit: int = 8) -> list[dict]:
@@ -203,13 +281,16 @@ def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
         }
         for poi in pois
     ]
+    transportation_lookup = build_transportation_lookup(pois, country)
     prompt = (
         "Output JSON only. No markdown, no commentary, and no keys outside this schema: "
         "{\"days\":[{\"day\":1,\"theme\":\"...\",\"route\":\"Location A → Location B\","
         "\"locations\":[{\"name\":\"...\",\"summary\":\"...\",\"history\":\"...\","
-        "\"precautions\":\"...\",\"bring\":\"...\",\"lookOutFor\":\"...\"}]}]}. "
+        "\"precautions\":\"...\",\"bring\":\"...\",\"lookOutFor\":\"...\","
+        "\"transportationMethod\":\"...\"}]}]}. "
         "Each field must be brief and practical. Build a day-by-day itinerary for "
-        f"{country} using this POI list: {json.dumps(places_payload)}"
+        f"{country} using this POI list: {json.dumps(places_payload)}. "
+        "Transportation method must align with evidence from Wikipedia and other public travel references."
     )
 
     try:
@@ -219,6 +300,11 @@ def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
         else:
             days = json.loads(ai_text).get("days", [])
         if isinstance(days, list) and days:
+            for day in days:
+                for location in day.get("locations", []):
+                    name = location.get("name")
+                    if name and not location.get("transportationMethod"):
+                        location["transportationMethod"] = transportation_lookup.get(name, "Local bus + walking")
             return days
     except Exception:
         pass
@@ -240,6 +326,7 @@ def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
                         "precautions": "Check weather and keep personal belongings secure.",
                         "bring": "Water, comfortable shoes, and a charged phone.",
                         "lookOutFor": "Busy periods, local rules, and transport timing.",
+                        "transportationMethod": transportation_lookup.get(place["name"], "Local bus + walking"),
                     }
                     for place in chunk
                 ],
