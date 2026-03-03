@@ -310,63 +310,6 @@ body {
   padding: .8rem;
 }
 
-
-.itinerary-day-card {
-  padding: .65rem;
-}
-
-.day-dropdown,
-.location-toggle {
-  border: 1px solid var(--border);
-  border-radius: .7rem;
-  background: rgba(8, 27, 61, .55);
-}
-
-.day-dropdown > summary,
-.location-toggle > summary {
-  cursor: pointer;
-  list-style: none;
-  font-weight: 700;
-  padding: .65rem .75rem;
-}
-
-.day-dropdown > summary::-webkit-details-marker,
-.location-toggle > summary::-webkit-details-marker {
-  display: none;
-}
-
-.day-dropdown[open] > summary,
-.location-toggle[open] > summary {
-  border-bottom: 1px solid rgba(255,255,255,.12);
-}
-
-.day-body {
-  padding: .75rem;
-}
-
-.day-overview {
-  margin-top: 0;
-}
-
-.location-list {
-  display: grid;
-  gap: .55rem;
-}
-
-.location-body {
-  padding: .65rem .75rem;
-}
-
-.location-body p {
-  margin: .35rem 0;
-}
-
-.itinerary-source {
-  margin-bottom: 0;
-  color: #c1d6ff;
-  font-size: .85rem;
-}
-
 .service-card {
   background: var(--panel-2);
   border: 1px solid var(--border);
