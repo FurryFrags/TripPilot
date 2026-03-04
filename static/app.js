@@ -87,6 +87,7 @@ let styleUpdateRequestId = 0;
 let locationImageLookup = {};
 let countryImageUrl = "";
 let latestMapFeatures = null;
+let latestItineraryOverlay = null;
 
 const MAP_NETWORK_SOURCE_IDS = {
   metro: 'trip-metro-source',
@@ -158,6 +159,7 @@ async function createMap() {
     mapReady = true;
     mapStyleSelect.disabled = false;
     renderMapNetwork(latestMapFeatures);
+    replayItineraryOverlay();
 
     if (queuedStyleMode) {
       const styleMode = queuedStyleMode;
@@ -200,6 +202,7 @@ async function setMapStyle(styleMode) {
       mapReady = true;
       mapStyleSelect.disabled = false;
       renderMapNetwork(latestMapFeatures);
+      replayItineraryOverlay();
     });
 
     statusText.textContent = `Map style updated to ${styleMode}.`;
@@ -267,6 +270,11 @@ function renderMapPois(pois) {
     });
   });
 
+  latestItineraryOverlay = {
+    placeFeatures,
+    routeCoordinates,
+  };
+
   renderItineraryOnMap(placeFeatures, routeCoordinates);
 
   if (!bounds.isEmpty()) {
@@ -287,9 +295,16 @@ function removeItineraryLayers() {
 }
 
 function renderItineraryOnMap(placeFeatures, routeCoordinates) {
+  latestItineraryOverlay = {
+    placeFeatures,
+    routeCoordinates,
+  };
+
   if (!mapReady || !map) {
     return;
   }
+
+  removeItineraryLayers();
 
   const places = {
     type: 'FeatureCollection',
@@ -357,6 +372,15 @@ function renderItineraryOnMap(placeFeatures, routeCoordinates) {
       },
     });
   }
+}
+
+function replayItineraryOverlay() {
+  if (!latestItineraryOverlay) {
+    removeItineraryLayers();
+    return;
+  }
+
+  renderItineraryOnMap(latestItineraryOverlay.placeFeatures, latestItineraryOverlay.routeCoordinates);
 }
 
 
