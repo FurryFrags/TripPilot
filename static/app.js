@@ -718,6 +718,17 @@ function fallbackCoordinateForIndex(index) {
 }
 
 function normalizeCoordinatePair(latCandidate, lngCandidate) {
+  if (
+    latCandidate === null
+    || latCandidate === undefined
+    || lngCandidate === null
+    || lngCandidate === undefined
+    || String(latCandidate).trim() === ''
+    || String(lngCandidate).trim() === ''
+  ) {
+    return null;
+  }
+
   const parsedLat = Number(latCandidate);
   const parsedLng = Number(lngCandidate);
 
@@ -734,6 +745,12 @@ function normalizeCoordinatePair(latCandidate, lngCandidate) {
   }
 
   return null;
+}
+
+function isNearNullIsland(coords) {
+  return Boolean(coords)
+    && Math.abs(coords.lat) < 0.1
+    && Math.abs(coords.lng) < 0.1;
 }
 
 function haversineDistanceKm(a, b) {
@@ -834,10 +851,13 @@ async function ensureMappablePois(country, days, pois = []) {
     const geocoded = await geocodeLocationName(name, country);
     const [fallbackLng, fallbackLat] = fallbackCoordinateForIndex(index);
 
-    let resolvedCoords = geocoded || aiCoords;
-    if (geocoded && aiCoords) {
-      const distanceKm = haversineDistanceKm(geocoded, aiCoords);
-      resolvedCoords = distanceKm > 25 ? geocoded : aiCoords;
+    const safeAiCoords = isNearNullIsland(aiCoords) ? null : aiCoords;
+    const safeGeocoded = isNearNullIsland(geocoded) ? null : geocoded;
+
+    let resolvedCoords = safeGeocoded || safeAiCoords;
+    if (safeGeocoded && safeAiCoords) {
+      const distanceKm = haversineDistanceKm(safeGeocoded, safeAiCoords);
+      resolvedCoords = distanceKm > 25 ? safeGeocoded : safeAiCoords;
     }
 
     const finalCoords = resolvedCoords || { lat: fallbackLat, lng: fallbackLng };
