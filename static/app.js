@@ -709,14 +709,6 @@ function collectDayLocationNames(days) {
   return names;
 }
 
-function fallbackCoordinateForIndex(index) {
-  const angle = (index * 137.5 * Math.PI) / 180;
-  const radius = 6 + (index % 5) * 1.8;
-  const lat = 20 + Math.sin(angle) * radius;
-  const lng = Math.cos(angle) * (radius * 2.5);
-  return [lng, lat];
-}
-
 function normalizeCoordinatePair(latCandidate, lngCandidate) {
   if (
     latCandidate === null
@@ -824,6 +816,10 @@ async function ensureMappablePois(country, days, pois = []) {
     })
     .filter(Boolean);
 
+  const normalizedPoiByName = new Map(
+    normalizedProvidedPois.map((poi) => [String(poi.name || '').trim().toLowerCase(), poi]),
+  );
+
   const names = [];
   const seen = new Set();
 
@@ -846,10 +842,9 @@ async function ensureMappablePois(country, days, pois = []) {
 
   for (let index = 0; index < names.length && builtPois.length < 8; index += 1) {
     const name = names[index];
-    const matchingPoi = (pois || []).find((poi) => poi?.name === name) || {};
+    const matchingPoi = normalizedPoiByName.get(String(name).trim().toLowerCase()) || {};
     const aiCoords = normalizeCoordinatePair(matchingPoi?.lat, matchingPoi?.lng);
     const geocoded = await geocodeLocationName(name, country);
-    const [fallbackLng, fallbackLat] = fallbackCoordinateForIndex(index);
 
     const safeAiCoords = isNearNullIsland(aiCoords) ? null : aiCoords;
     const safeGeocoded = isNearNullIsland(geocoded) ? null : geocoded;
@@ -860,7 +855,9 @@ async function ensureMappablePois(country, days, pois = []) {
       resolvedCoords = distanceKm > 25 ? safeGeocoded : safeAiCoords;
     }
 
-    const finalCoords = resolvedCoords || { lat: fallbackLat, lng: fallbackLng };
+    if (!resolvedCoords) {
+      continue;
+    }
 
     builtPois.push({
       name,
@@ -869,8 +866,8 @@ async function ensureMappablePois(country, days, pois = []) {
       description: matchingPoi?.description || 'Mapped from itinerary locations.',
       source: geocoded?.source || matchingPoi?.source || 'https://www.openstreetmap.org',
       image: locationImageLookup[name] || '',
-      lat: finalCoords.lat,
-      lng: finalCoords.lng,
+      lat: resolvedCoords.lat,
+      lng: resolvedCoords.lng,
     });
   }
 
