@@ -400,8 +400,93 @@ def collect_live_pois(country: str, limit: int = 8) -> list[dict]:
     return pois
 
 
+def geocode_location(name: str, country: str) -> dict | None:
+    if not name:
+        return None
+
+    query = quote(f"{name}, {country}")
+    geocode_url = f"https://nominatim.openstreetmap.org/search?q={query}&format=jsonv2&limit=1"
+
+    try:
+        results = fetch_json(geocode_url)
+    except Exception:
+        return None
+
+    if not isinstance(results, list) or not results:
+        return None
+
+    result = results[0]
+    try:
+        lat = float(result.get("lat"))
+        lng = float(result.get("lon"))
+    except (TypeError, ValueError):
+        return None
+
+    return {
+        "name": name,
+        "image": "",
+        "city": country,
+        "country": country,
+        "description": "Location added from itinerary route fallback geocoding.",
+        "source": result.get("osm_url")
+        or result.get("display_name")
+        or "https://www.openstreetmap.org",
+        "lat": lat,
+        "lng": lng,
+    }
+
+
+def extract_location_names(days: list[dict]) -> list[str]:
+    location_names: list[str] = []
+    seen: set[str] = set()
+
+    for day in days:
+        for location in day.get("locations", []):
+            name = (location.get("name") or "").strip()
+            if name and name not in seen:
+                seen.add(name)
+                location_names.append(name)
+
+    return location_names
+
+
+def ensure_mappable_pois(country: str, pois: list[dict], days: list[dict]) -> list[dict]:
+    valid_pois = [poi for poi in pois if poi.get("lat") is not None and poi.get("lng") is not None]
+    if len(valid_pois) >= 2:
+        return valid_pois
+
+    fallback_pois: list[dict] = []
+    for location_name in extract_location_names(days):
+        geocoded = geocode_location(location_name, country)
+        if geocoded:
+            fallback_pois.append(geocoded)
+        if len(fallback_pois) >= 8:
+            break
+
+    return fallback_pois or valid_pois
+
+
 def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
     if not pois:
+        prompt = (
+            "Output JSON only. No markdown, no commentary, and no keys outside this schema: "
+            "{\"days\":[{\"day\":1,\"theme\":\"...\",\"route\":\"Location A -> Location B\","
+            "\"locations\":[{\"name\":\"...\",\"summary\":\"...\",\"history\":\"...\","
+            "\"precautions\":\"...\",\"bring\":\"...\",\"lookOutFor\":\"...\","
+            "\"transportationMethod\":\"...\"}]}]}. "
+            f"Build a practical itinerary for {country} with real, famous destinations and include 2-3 locations per day."
+        )
+        try:
+            ai_text = fetch_json(f"https://text.pollinations.ai/{quote(prompt)}", expect_json=False)
+            if isinstance(ai_text, dict):
+                days = ai_text.get("days", [])
+            else:
+                days = json.loads(ai_text).get("days", [])
+            if isinstance(days, list) and days:
+                return days
+        except Exception:
+            return []
+
         return []
 
     places_payload = [
@@ -414,7 +499,7 @@ def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
     transportation_lookup = build_transportation_lookup(pois, country)
     prompt = (
         "Output JSON only. No markdown, no commentary, and no keys outside this schema: "
-        "{\"days\":[{\"day\":1,\"theme\":\"...\",\"route\":\"Location A → Location B\","
+        "{\"days\":[{\"day\":1,\"theme\":\"...\",\"route\":\"Location A -> Location B\","
         "\"locations\":[{\"name\":\"...\",\"summary\":\"...\",\"history\":\"...\","
         "\"precautions\":\"...\",\"bring\":\"...\",\"lookOutFor\":\"...\","
         "\"transportationMethod\":\"...\"}]}]}. "
@@ -447,7 +532,7 @@ def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
             {
                 "day": len(days) + 1,
                 "theme": f"Discover {country}",
-                "route": " → ".join(location_names),
+                "route": " -> ".join(location_names),
                 "locations": [
                     {
                         "name": place["name"],
@@ -589,11 +674,12 @@ class TripPilotHandler(BaseHTTPRequestHandler):
             try:
                 pois = collect_live_pois(country)
                 days = generate_tour_plan(country, pois)
-                map_features = build_map_features(country, pois)
+                mappable_pois = ensure_mappable_pois(country, pois, days)
+                map_features = build_map_features(country, mappable_pois)
                 self._send_json(
                     {
                         "country": country,
-                        "pois": pois,
+                        "pois": mappable_pois,
                         "days": days,
                         "mapFeatures": map_features,
                         "source": "Wikipedia live search + Pollinations AI (no API key)",

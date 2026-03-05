@@ -572,7 +572,8 @@ async function generateTour() {
     locationImageLookup = imageData.locationImages || {};
     countryImageUrl = imageData.countryImage || "";
 
-    renderMapPois(data.pois || []);
+    const mappablePois = await ensureMappablePois(data.country, data.days || [], data.pois || []);
+    renderMapPois(mappablePois);
     renderMapNetwork(data.mapFeatures || null);
     renderItinerary(data.country, data.days || [], data.source || 'live web data');
     statusText.textContent = mapInitialized
@@ -688,6 +689,85 @@ async function requestAiTour(country) {
   }
 
   return buildClientSideTour(country);
+}
+
+function collectDayLocationNames(days) {
+  const names = [];
+  const seen = new Set();
+
+  (days || []).forEach((day) => {
+    const normalizedDay = normalizeDay(day);
+    normalizedDay.locations.forEach((location) => {
+      const name = (location?.name || '').trim();
+      if (name && !seen.has(name)) {
+        seen.add(name);
+        names.push(name);
+      }
+    });
+  });
+
+  return names;
+}
+
+function fallbackCoordinateForIndex(index) {
+  const angle = (index * 137.5 * Math.PI) / 180;
+  const radius = 6 + (index % 5) * 1.8;
+  const lat = 20 + Math.sin(angle) * radius;
+  const lng = Math.cos(angle) * (radius * 2.5);
+  return [lng, lat];
+}
+
+async function geocodeLocationName(name, country) {
+  const q = encodeURIComponent(`${name}, ${country}`);
+  const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=jsonv2&limit=1`;
+
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!Array.isArray(data) || !data.length) return null;
+
+    const first = data[0];
+    const lat = Number(first.lat);
+    const lng = Number(first.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+    return { lat, lng, source: first.osm_url || 'https://www.openstreetmap.org' };
+  } catch {
+    return null;
+  }
+}
+
+async function ensureMappablePois(country, days, pois = []) {
+  const validPois = (pois || []).filter((poi) => Number.isFinite(poi?.lat) && Number.isFinite(poi?.lng));
+  if (validPois.length >= 2) return validPois;
+
+  const names = collectDayLocationNames(days);
+  const builtPois = [];
+
+  for (let index = 0; index < names.length && builtPois.length < 8; index += 1) {
+    const name = names[index];
+    const geocoded = await geocodeLocationName(name, country);
+    const [fallbackLng, fallbackLat] = fallbackCoordinateForIndex(index);
+
+    builtPois.push({
+      name,
+      country,
+      city: country,
+      description: 'Mapped from itinerary locations.',
+      source: geocoded?.source || 'https://www.openstreetmap.org',
+      image: locationImageLookup[name] || '',
+      lat: geocoded?.lat ?? fallbackLat,
+      lng: geocoded?.lng ?? fallbackLng,
+    });
+  }
+
+  return builtPois.length ? builtPois : validPois;
 }
 
 async function buildClientSideTour(country) {
