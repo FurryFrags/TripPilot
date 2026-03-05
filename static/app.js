@@ -91,7 +91,7 @@ let locationImageLookup = {};
 let countryImageUrl = "";
 let latestMapFeatures = null;
 let latestItineraryOverlay = null;
-let selectedCountries = new Set(['Japan']);
+let selectedCountries = new Set();
 
 const COUNTRY_OPTIONS = [
   'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Argentina', 'Armenia', 'Australia', 'Austria', 'Azerbaijan',
@@ -1009,7 +1009,6 @@ async function initApp() {
     mapStyleSelect.disabled = false;
   }
 
-  generateTour();
 }
 
 mapStyleSelect?.addEventListener('change', (event) => {
