@@ -717,9 +717,57 @@ function fallbackCoordinateForIndex(index) {
   return [lng, lat];
 }
 
+function normalizeCoordinatePair(latCandidate, lngCandidate) {
+  const parsedLat = Number(latCandidate);
+  const parsedLng = Number(lngCandidate);
+
+  if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
+    return null;
+  }
+
+  if (Math.abs(parsedLat) <= 90 && Math.abs(parsedLng) <= 180) {
+    return { lat: parsedLat, lng: parsedLng };
+  }
+
+  if (Math.abs(parsedLng) <= 90 && Math.abs(parsedLat) <= 180) {
+    return { lat: parsedLng, lng: parsedLat };
+  }
+
+  return null;
+}
+
+function haversineDistanceKm(a, b) {
+  const toRad = (value) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+
+  const deltaLat = toRad(b.lat - a.lat);
+  const deltaLng = toRad(b.lng - a.lng);
+  const aTerm = Math.sin(deltaLat / 2) ** 2
+    + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(deltaLng / 2) ** 2;
+
+  return 2 * earthRadiusKm * Math.atan2(Math.sqrt(aTerm), Math.sqrt(1 - aTerm));
+}
+
+function chooseBestGeocodeResult(results, country) {
+  if (!Array.isArray(results) || !results.length) return null;
+
+  const normalizedCountry = (country || '').trim().toLowerCase();
+  const ranked = [...results].sort((a, b) => Number(b.importance || 0) - Number(a.importance || 0));
+
+  if (!normalizedCountry) return ranked[0];
+
+  const countryMatched = ranked.find((candidate) => {
+    const display = String(candidate?.display_name || '').toLowerCase();
+    const addressCountry = String(candidate?.address?.country || '').toLowerCase();
+    return display.includes(normalizedCountry) || addressCountry.includes(normalizedCountry);
+  });
+
+  return countryMatched || ranked[0];
+}
+
 async function geocodeLocationName(name, country) {
   const q = encodeURIComponent(`${name}, ${country}`);
-  const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=jsonv2&limit=1`;
+  const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=jsonv2&limit=5&addressdetails=1`;
 
   try {
     const res = await fetch(url, {
@@ -730,44 +778,83 @@ async function geocodeLocationName(name, country) {
 
     if (!res.ok) return null;
     const data = await res.json();
-    if (!Array.isArray(data) || !data.length) return null;
+    const best = chooseBestGeocodeResult(data, country);
+    if (!best) return null;
 
-    const first = data[0];
-    const lat = Number(first.lat);
-    const lng = Number(first.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    const parsedCoords = normalizeCoordinatePair(best.lat, best.lon);
+    if (!parsedCoords) return null;
 
-    return { lat, lng, source: first.osm_url || 'https://www.openstreetmap.org' };
+    return {
+      ...parsedCoords,
+      source: best.osm_url || 'https://www.openstreetmap.org',
+    };
   } catch {
     return null;
   }
 }
 
 async function ensureMappablePois(country, days, pois = []) {
-  const validPois = (pois || []).filter((poi) => Number.isFinite(poi?.lat) && Number.isFinite(poi?.lng));
-  if (validPois.length >= 2) return validPois;
+  const normalizedProvidedPois = (pois || [])
+    .map((poi) => {
+      const normalizedCoords = normalizeCoordinatePair(poi?.lat, poi?.lng);
+      if (!normalizedCoords || !poi?.name) return null;
 
-  const names = collectDayLocationNames(days);
+      return {
+        ...poi,
+        lat: normalizedCoords.lat,
+        lng: normalizedCoords.lng,
+      };
+    })
+    .filter(Boolean);
+
+  const names = [];
+  const seen = new Set();
+
+  (pois || []).forEach((poi) => {
+    const name = (poi?.name || '').trim();
+    if (name && !seen.has(name)) {
+      seen.add(name);
+      names.push(name);
+    }
+  });
+
+  collectDayLocationNames(days).forEach((name) => {
+    if (!seen.has(name)) {
+      seen.add(name);
+      names.push(name);
+    }
+  });
+
   const builtPois = [];
 
   for (let index = 0; index < names.length && builtPois.length < 8; index += 1) {
     const name = names[index];
+    const matchingPoi = (pois || []).find((poi) => poi?.name === name) || {};
+    const aiCoords = normalizeCoordinatePair(matchingPoi?.lat, matchingPoi?.lng);
     const geocoded = await geocodeLocationName(name, country);
     const [fallbackLng, fallbackLat] = fallbackCoordinateForIndex(index);
+
+    let resolvedCoords = geocoded || aiCoords;
+    if (geocoded && aiCoords) {
+      const distanceKm = haversineDistanceKm(geocoded, aiCoords);
+      resolvedCoords = distanceKm > 25 ? geocoded : aiCoords;
+    }
+
+    const finalCoords = resolvedCoords || { lat: fallbackLat, lng: fallbackLng };
 
     builtPois.push({
       name,
       country,
-      city: country,
-      description: 'Mapped from itinerary locations.',
-      source: geocoded?.source || 'https://www.openstreetmap.org',
+      city: matchingPoi?.city || country,
+      description: matchingPoi?.description || 'Mapped from itinerary locations.',
+      source: geocoded?.source || matchingPoi?.source || 'https://www.openstreetmap.org',
       image: locationImageLookup[name] || '',
-      lat: geocoded?.lat ?? fallbackLat,
-      lng: geocoded?.lng ?? fallbackLng,
+      lat: finalCoords.lat,
+      lng: finalCoords.lng,
     });
   }
 
-  return builtPois.length ? builtPois : validPois;
+  return builtPois.length ? builtPois : normalizedProvidedPois;
 }
 
 async function buildClientSideTour(country) {
