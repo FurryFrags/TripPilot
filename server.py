@@ -5,6 +5,7 @@ import json
 import math
 import os
 import ssl
+from datetime import datetime, timezone
 from ipaddress import ip_address
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -106,6 +107,7 @@ USER_AGENT = "TripPilot/1.0 (+https://example.local)"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = "openai/gpt-4.1-nano"
+POLLINATIONS_MODEL = "pollinations/text-default"
 
 TRANSPORT_KEYWORDS = {
     "Metro/Subway": ("metro", "subway", "underground", "tube"),
@@ -166,8 +168,21 @@ def fetch_json(url: str, *, expect_json: bool = True) -> dict | list | str:
     return text
 
 
-def generate_ai_text(prompt: str) -> str:
+def log_ai_diary(event: str, **details: object) -> None:
+    payload = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "event": event,
+        **details,
+    }
+    print(f"[AI_DIARY] {json.dumps(payload, ensure_ascii=False)}", flush=True)
+
+
+def generate_ai_text(prompt: str) -> dict:
+    diary: list[dict] = []
+
     if OPENROUTER_API_KEY:
+        diary.append({"provider": "openrouter", "model": OPENROUTER_MODEL, "status": "attempt"})
+        log_ai_diary("attempt", provider="openrouter", model=OPENROUTER_MODEL)
         payload = {
             "model": OPENROUTER_MODEL,
             "messages": [
@@ -192,20 +207,42 @@ def generate_ai_text(prompt: str) -> str:
             },
             method="POST",
         )
-        context = ssl.create_default_context()
-        with urlopen(request, context=context, timeout=20) as response:  # noqa: S310
-            raw = response.read().decode("utf-8")
-        parsed = json.loads(raw)
-        content = (
-            parsed.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-            .strip()
-        )
-        if content:
-            return content
+        try:
+            context = ssl.create_default_context()
+            with urlopen(request, context=context, timeout=20) as response:  # noqa: S310
+                raw = response.read().decode("utf-8")
+            parsed = json.loads(raw)
+            content = (
+                parsed.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+                .strip()
+            )
+            if content:
+                diary.append({"provider": "openrouter", "model": OPENROUTER_MODEL, "status": "success"})
+                log_ai_diary("success", provider="openrouter", model=OPENROUTER_MODEL, contentChars=len(content))
+                return {"text": content, "provider": "openrouter", "model": OPENROUTER_MODEL, "diary": diary}
 
-    return str(fetch_json(f"https://text.pollinations.ai/{quote(prompt)}", expect_json=False))
+            failure = "OpenRouter returned empty content"
+            diary.append({"provider": "openrouter", "model": OPENROUTER_MODEL, "status": "failed", "error": failure})
+            log_ai_diary("failed", provider="openrouter", model=OPENROUTER_MODEL, error=failure)
+        except Exception as exc:
+            error_message = f"{type(exc).__name__}: {exc}"
+            diary.append({"provider": "openrouter", "model": OPENROUTER_MODEL, "status": "failed", "error": error_message})
+            log_ai_diary("failed", provider="openrouter", model=OPENROUTER_MODEL, error=error_message)
+
+    diary.append({"provider": "pollinations", "model": POLLINATIONS_MODEL, "status": "attempt"})
+    log_ai_diary("attempt", provider="pollinations", model=POLLINATIONS_MODEL)
+    try:
+        text = str(fetch_json(f"https://text.pollinations.ai/{quote(prompt)}", expect_json=False))
+        diary.append({"provider": "pollinations", "model": POLLINATIONS_MODEL, "status": "success"})
+        log_ai_diary("success", provider="pollinations", model=POLLINATIONS_MODEL, contentChars=len(text))
+        return {"text": text, "provider": "pollinations", "model": POLLINATIONS_MODEL, "diary": diary}
+    except Exception as exc:
+        error_message = f"{type(exc).__name__}: {exc}"
+        diary.append({"provider": "pollinations", "model": POLLINATIONS_MODEL, "status": "failed", "error": error_message})
+        log_ai_diary("failed", provider="pollinations", model=POLLINATIONS_MODEL, error=error_message)
+        raise
 
 
 def fetch_wikivoyage_extract(title: str) -> str:
@@ -512,7 +549,7 @@ def ensure_mappable_pois(country: str, pois: list[dict], days: list[dict]) -> li
     return fallback_pois or valid_pois
 
 
-def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
+def generate_tour_plan(country: str, pois: list[dict]) -> dict:
     if not pois:
         prompt = (
             "Output JSON only. No markdown, no commentary, and no keys outside this schema: "
@@ -523,17 +560,14 @@ def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
             f"Build a practical itinerary for {country} with real, famous destinations and include 2-3 locations per day."
         )
         try:
-            ai_text = generate_ai_text(prompt)
-            if isinstance(ai_text, dict):
-                days = ai_text.get("days", [])
-            else:
-                days = json.loads(ai_text).get("days", [])
+            ai_response = generate_ai_text(prompt)
+            days = json.loads(ai_response["text"]).get("days", [])
             if isinstance(days, list) and days:
-                return days
+                return {"days": days, "aiDiary": ai_response.get("diary", []), "aiModel": ai_response.get("model", "")}
         except Exception:
-            return []
+            return {"days": [], "aiDiary": [], "aiModel": ""}
 
-        return []
+        return {"days": [], "aiDiary": [], "aiModel": ""}
 
     places_payload = [
         {
@@ -555,18 +589,15 @@ def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
     )
 
     try:
-        ai_text = generate_ai_text(prompt)
-        if isinstance(ai_text, dict):
-            days = ai_text.get("days", [])
-        else:
-            days = json.loads(ai_text).get("days", [])
+        ai_response = generate_ai_text(prompt)
+        days = json.loads(ai_response["text"]).get("days", [])
         if isinstance(days, list) and days:
             for day in days:
                 for location in day.get("locations", []):
                     name = location.get("name")
                     if name and not location.get("transportationMethod"):
                         location["transportationMethod"] = transportation_lookup.get(name, "Local bus + walking")
-            return days
+            return {"days": days, "aiDiary": ai_response.get("diary", []), "aiModel": ai_response.get("model", "")}
     except Exception:
         pass
 
@@ -593,7 +624,7 @@ def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
                 ],
             }
         )
-    return days
+    return {"days": days, "aiDiary": [], "aiModel": ""}
 
 
 class TripPilotHandler(BaseHTTPRequestHandler):
@@ -719,7 +750,8 @@ class TripPilotHandler(BaseHTTPRequestHandler):
 
             try:
                 pois = collect_live_pois(country)
-                days = generate_tour_plan(country, pois)
+                plan = generate_tour_plan(country, pois)
+                days = plan.get("days", [])
                 mappable_pois = ensure_mappable_pois(country, pois, days)
                 map_features = build_map_features(country, mappable_pois)
                 self._send_json(
@@ -727,6 +759,8 @@ class TripPilotHandler(BaseHTTPRequestHandler):
                         "country": country,
                         "pois": mappable_pois,
                         "days": days,
+                        "aiModel": plan.get("aiModel", ""),
+                        "aiDiary": plan.get("aiDiary", []),
                         "mapFeatures": map_features,
                         "source": (
                             "Wikipedia live search + OpenRouter AI"
