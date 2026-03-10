@@ -778,6 +778,17 @@ function logAiDiary(country, diaryEntries = [], sourceLabel = '') {
   console.groupEnd();
 }
 
+function logAiModelUsed(aiModel = '', diaryEntries = []) {
+  const resolvedModel = (
+    aiModel
+    || diaryEntries.find((entry) => entry?.status === 'success')?.model
+    || diaryEntries[diaryEntries.length - 1]?.model
+    || 'unknown-model'
+  );
+
+  console.log(`🤖 AI model used: ${resolvedModel}`);
+}
+
 async function requestAiTour(country) {
   for (const url of getAiTourEndpoints(country)) {
     try {
@@ -802,6 +813,7 @@ async function requestAiTour(country) {
       }
 
       logAiDiary(country, data.aiDiary, data.aiModel || data.source || 'server');
+      logAiModelUsed(data.aiModel, data.aiDiary || []);
 
       return data;
     } catch (error) {
@@ -809,7 +821,9 @@ async function requestAiTour(country) {
     }
   }
 
-  return buildClientSideTour(country);
+  const fallbackTour = await buildClientSideTour(country);
+  logAiModelUsed(fallbackTour.aiModel, fallbackTour.aiDiary || []);
+  return fallbackTour;
 }
 
 function collectDayLocationNames(days) {
