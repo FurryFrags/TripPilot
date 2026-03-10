@@ -1,11 +1,11 @@
 # TripPilot
 
 TripPilot is a tourism-focused planner that generates country tours from live web data.
-It can pull attractions from public internet sources and use a free no-key AI model to produce a day-by-day itinerary with map pins.
+It can pull attractions from public internet sources and generate day-by-day itineraries with map pins using OpenRouter (fast model) when `OPENROUTER_API_KEY` is available.
 
 ## Features
 
-- Country-based tour generation without API keys.
+- Country-based tour generation using OpenRouter (`OPENROUTER_API_KEY`) with automatic no-key fallback.
 - Live POI discovery from public web endpoints.
 - AI-generated day-by-day itinerary suggestions.
 - MapLibre GL JS map pins for discovered places.
@@ -30,7 +30,21 @@ You can open `index.html` from the repository root (it redirects automatically),
 - Compare production `app.js` checksum with repository `static/app.js` checksum before sign-off.
 - Verify the shipped JS bundle text contains `maplibregl.Map` and does not contain `L.map`.
 
-## PollinationsClient – Free AI for Tour Recommendations
+## AI provider setup
+
+TripPilot uses OpenRouter by default in `server.py` when the secret `OPENROUTER_API_KEY` is set.
+
+- Model: `openai/gpt-4.1-nano` (very fast).
+- Endpoint: `https://openrouter.ai/api/v1/chat/completions`.
+- Fallback: Pollinations text endpoint if `OPENROUTER_API_KEY` is missing.
+
+### Configure GitHub secret
+
+1. Go to your repository **Settings → Secrets and variables → Actions**.
+2. Create (or update) a repository secret named exactly `OPENROUTER_API_KEY`.
+3. Ensure your runtime exposes this secret as an environment variable.
+
+## PollinationsClient – Free AI fallback client
 
 ### Why this client
 
