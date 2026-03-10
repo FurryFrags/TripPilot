@@ -757,6 +757,27 @@ function getAiTourEndpoints(country) {
   return endpoints;
 }
 
+function logAiDiary(country, diaryEntries = [], sourceLabel = '') {
+  if (!Array.isArray(diaryEntries) || !diaryEntries.length) return;
+
+  console.groupCollapsed(`🧾 AI diary for ${country} (${sourceLabel || 'unknown source'})`);
+  diaryEntries.forEach((entry, index) => {
+    const provider = entry?.provider || 'unknown-provider';
+    const model = entry?.model || 'unknown-model';
+    const status = entry?.status || 'unknown-status';
+    const error = entry?.error || '';
+    const message = `[${index + 1}] ${provider} :: ${model} :: ${status}`;
+
+    if (status === 'failed') {
+      console.error(message, error);
+      return;
+    }
+
+    console.log(message);
+  });
+  console.groupEnd();
+}
+
 async function requestAiTour(country) {
   for (const url of getAiTourEndpoints(country)) {
     try {
@@ -767,17 +788,24 @@ async function requestAiTour(country) {
       try {
         data = JSON.parse(bodyText);
       } catch {
+        console.error('AI tour endpoint returned non-JSON payload', { url, status: res.status, bodyPreview: bodyText.slice(0, 300) });
         continue;
       }
 
       if (!res.ok) {
-        if (res.status === 404) continue;
+        if (res.status === 404) {
+          console.warn('AI tour endpoint not found, trying next endpoint', { url });
+          continue;
+        }
+        console.error('AI tour endpoint failed', { url, status: res.status, error: data.error || 'Unknown API error' });
         throw new Error(data.error || 'Failed to generate tour');
       }
 
+      logAiDiary(country, data.aiDiary, data.aiModel || data.source || 'server');
+
       return data;
-    } catch {
-      // Try the next endpoint.
+    } catch (error) {
+      console.error('AI tour request attempt failed', { url, error: error?.message || String(error) });
     }
   }
 
@@ -974,8 +1002,15 @@ async function buildClientSideTour(country) {
     `Country: ${country}. Keep each field brief, practical, and standardized.`,
   ].join(' ');
 
-  const res = await fetch(`https://text.pollinations.ai/${encodeURIComponent(prompt)}`);
+  const fallbackModel = 'pollinations/text-default';
+  const fallbackUrl = `https://text.pollinations.ai/${encodeURIComponent(prompt)}`;
+  const res = await fetch(fallbackUrl);
   const raw = await res.text();
+
+  if (!res.ok) {
+    console.error('Client-side Pollinations fallback failed', { model: fallbackModel, status: res.status, bodyPreview: raw.slice(0, 300) });
+    throw new Error('Fallback AI request failed. Please try again.');
+  }
 
   let parsed;
   try {
@@ -994,6 +1029,8 @@ async function buildClientSideTour(country) {
     days: parsed.days,
     pois: [],
     mapFeatures: null,
+    aiModel: fallbackModel,
+    aiDiary: [{ provider: 'pollinations', model: fallbackModel, status: 'success' }],
     source: 'Pollinations AI (browser fallback)',
   };
 }
