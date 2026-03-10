@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import ssl
 from ipaddress import ip_address
 from http import HTTPStatus
@@ -102,6 +103,9 @@ SERVICES = [
 ]
 
 USER_AGENT = "TripPilot/1.0 (+https://example.local)"
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MODEL = "openai/gpt-4.1-nano"
 
 TRANSPORT_KEYWORDS = {
     "Metro/Subway": ("metro", "subway", "underground", "tube"),
@@ -160,6 +164,48 @@ def fetch_json(url: str, *, expect_json: bool = True) -> dict | list | str:
     if expect_json:
         return json.loads(text)
     return text
+
+
+def generate_ai_text(prompt: str) -> str:
+    if OPENROUTER_API_KEY:
+        payload = {
+            "model": OPENROUTER_MODEL,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a precise travel itinerary generator. "
+                        "Always respond with valid JSON only and no markdown."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.3,
+        }
+        request = Request(
+            OPENROUTER_API_URL,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "User-Agent": USER_AGENT,
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        context = ssl.create_default_context()
+        with urlopen(request, context=context, timeout=20) as response:  # noqa: S310
+            raw = response.read().decode("utf-8")
+        parsed = json.loads(raw)
+        content = (
+            parsed.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+            .strip()
+        )
+        if content:
+            return content
+
+    return str(fetch_json(f"https://text.pollinations.ai/{quote(prompt)}", expect_json=False))
 
 
 def fetch_wikivoyage_extract(title: str) -> str:
@@ -477,7 +523,7 @@ def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
             f"Build a practical itinerary for {country} with real, famous destinations and include 2-3 locations per day."
         )
         try:
-            ai_text = fetch_json(f"https://text.pollinations.ai/{quote(prompt)}", expect_json=False)
+            ai_text = generate_ai_text(prompt)
             if isinstance(ai_text, dict):
                 days = ai_text.get("days", [])
             else:
@@ -509,7 +555,7 @@ def generate_tour_plan(country: str, pois: list[dict]) -> list[dict]:
     )
 
     try:
-        ai_text = fetch_json(f"https://text.pollinations.ai/{quote(prompt)}", expect_json=False)
+        ai_text = generate_ai_text(prompt)
         if isinstance(ai_text, dict):
             days = ai_text.get("days", [])
         else:
@@ -682,7 +728,11 @@ class TripPilotHandler(BaseHTTPRequestHandler):
                         "pois": mappable_pois,
                         "days": days,
                         "mapFeatures": map_features,
-                        "source": "Wikipedia live search + Pollinations AI (no API key)",
+                        "source": (
+                            "Wikipedia live search + OpenRouter AI"
+                            if OPENROUTER_API_KEY
+                            else "Wikipedia live search + Pollinations AI (no API key)"
+                        ),
                     }
                 )
             except Exception as exc:
