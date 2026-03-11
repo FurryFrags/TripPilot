@@ -156,6 +156,7 @@ function getStyleDefinition(styleMode) {
   return {
     version: 8,
     name: `TripPilot ${requestedStyle.label}`,
+    glyphs: 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
     sources: requestedStyle.sources,
     layers: requestedStyle.layers,
     attribution: requestedStyle.attribution,
@@ -376,6 +377,7 @@ function restoreItineraryOverlayFromState() {
     source: MAP_ITINERARY_SOURCE_IDS.places,
     layout: {
       'text-field': ['concat', ['to-string', ['get', 'sequence']], '. ', ['get', 'name']],
+      'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
       'text-size': 11,
       'text-anchor': 'top',
       'text-offset': [0, 1.1],
@@ -488,6 +490,7 @@ function renderMapNetwork(mapFeatures) {
     source: MAP_NETWORK_SOURCE_IDS.labels,
     layout: {
       'text-field': ['get', 'label'],
+      'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
       'text-size': 11,
       'text-offset': [0, 0.75],
       'text-anchor': 'top',

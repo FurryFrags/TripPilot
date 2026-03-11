@@ -192,28 +192,41 @@ def fetch_location_images(country: str, locations: list[str]) -> dict:
     try:
         country_summary = wikipedia_summary(country)
         country_image = extract_image_url(country_summary)
-    except Exception:
-        country_image = ""
+    except Exception as exc:
+        log_ai_diary("fetch_country_image_failed", country=country, error=str(exc)[:80])
 
     location_images: dict[str, str] = {}
     for location in unique_locations:
         try:
             summary = wikipedia_summary(location)
             location_images[location] = extract_image_url(summary)
-        except Exception:
+        except Exception as exc:
+            log_ai_diary("fetch_location_image_failed", location=location[:50], error=str(exc)[:80])
             location_images[location] = ""
 
     return {"country": country, "countryImage": country_image, "locationImages": location_images}
 
 
-def fetch_json(url: str, *, expect_json: bool = True) -> dict | list | str:
-    request = Request(url, headers={"User-Agent": USER_AGENT})
-    context = ssl.create_default_context()
-    with urlopen(request, context=context, timeout=12) as response:  # noqa: S310
-        text = response.read().decode("utf-8")
-    if expect_json:
-        return json.loads(text)
-    return text
+def fetch_json(url: str, *, expect_json: bool = True, max_retries: int = 2, timeout: int = 15) -> dict | list | str:
+    """Fetch JSON from a URL with retry logic and configurable timeout."""
+    import time
+    
+    for attempt in range(max_retries + 1):
+        try:
+            request = Request(url, headers={"User-Agent": USER_AGENT})
+            context = ssl.create_default_context()
+            with urlopen(request, context=context, timeout=timeout) as response:  # noqa: S310
+                text = response.read().decode("utf-8")
+            if expect_json:
+                return json.loads(text)
+            return text
+        except Exception as exc:
+            if attempt < max_retries:
+                wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, etc.
+                log_ai_diary("retry", url=url[:80], attempt=attempt + 1, wait_seconds=wait_time, error=str(exc)[:100])
+                time.sleep(wait_time)
+            else:
+                raise
 
 
 def log_ai_diary(event: str, **details: object) -> None:
@@ -244,6 +257,7 @@ def extract_json_object(raw_text: str) -> dict:
 
 
 def generate_ai_text(prompt: str) -> dict:
+    import time
     diary: list[dict] = []
 
     if OPENROUTER_API_KEY:
@@ -284,7 +298,7 @@ def generate_ai_text(prompt: str) -> dict:
         )
         try:
             context = ssl.create_default_context()
-            with urlopen(request, context=context, timeout=20) as response:  # noqa: S310
+            with urlopen(request, context=context, timeout=25) as response:  # noqa: S310
                 raw = response.read().decode("utf-8")
             parsed = json.loads(raw)
             content = (
@@ -308,16 +322,29 @@ def generate_ai_text(prompt: str) -> dict:
 
     diary.append({"provider": "pollinations", "model": POLLINATIONS_MODEL, "status": "attempt"})
     log_ai_diary("attempt", provider="pollinations", model=POLLINATIONS_MODEL)
-    try:
-        text = str(fetch_json(f"https://text.pollinations.ai/{quote(prompt)}", expect_json=False))
-        diary.append({"provider": "pollinations", "model": POLLINATIONS_MODEL, "status": "success"})
-        log_ai_diary("success", provider="pollinations", model=POLLINATIONS_MODEL, contentChars=len(text))
-        return {"text": text, "provider": "pollinations", "model": POLLINATIONS_MODEL, "diary": diary}
-    except Exception as exc:
-        error_message = f"{type(exc).__name__}: {exc}"
-        diary.append({"provider": "pollinations", "model": POLLINATIONS_MODEL, "status": "failed", "error": error_message})
-        log_ai_diary("failed", provider="pollinations", model=POLLINATIONS_MODEL, error=error_message)
-        raise
+    
+    # Retry Pollinations with exponential backoff
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            text = str(fetch_json(f"https://text.pollinations.ai/{quote(prompt)}", expect_json=False, max_retries=1, timeout=18))
+            if text and len(text) > 10:
+                diary.append({"provider": "pollinations", "model": POLLINATIONS_MODEL, "status": "success"})
+                log_ai_diary("success", provider="pollinations", model=POLLINATIONS_MODEL, contentChars=len(text))
+                return {"text": text, "provider": "pollinations", "model": POLLINATIONS_MODEL, "diary": diary}
+        except Exception as exc:
+            error_message = f"{type(exc).__name__}: {exc}"
+            if attempt < max_retries - 1:
+                # Wait before retrying
+                wait_time = 3 + (attempt * 2)
+                log_ai_diary("pollinations_retry", attempt=attempt + 1, wait_seconds=wait_time, error=error_message[:100])
+                time.sleep(wait_time)
+            else:
+                diary.append({"provider": "pollinations", "model": POLLINATIONS_MODEL, "status": "failed", "error": error_message})
+                log_ai_diary("failed", provider="pollinations", model=POLLINATIONS_MODEL, error=error_message)
+    
+    # All providers failed - return a graceful error that indicates to use fallback
+    raise Exception("Unable to generate AI text: all providers exhausted or rate-limited")
 
 
 def fetch_wikivoyage_extract(title: str) -> str:
@@ -517,12 +544,17 @@ def build_map_features(country: str, pois: list[dict]) -> dict:
 
 
 def collect_live_pois(country: str, limit: int = 8) -> list[dict]:
-    search_url = (
-        "https://en.wikipedia.org/w/api.php?action=query&list=search"
-        f"&srsearch={quote(country + ' tourist attractions')}&format=json&utf8=1&srlimit=16"
-    )
-    payload = fetch_json(search_url)
-    results = payload.get("query", {}).get("search", [])
+    try:
+        search_url = (
+            "https://en.wikipedia.org/w/api.php?action=query&list=search"
+            f"&srsearch={quote(country + ' tourist attractions')}&format=json&utf8=1&srlimit=16"
+        )
+        payload = fetch_json(search_url, max_retries=1, timeout=10)
+        results = payload.get("query", {}).get("search", [])
+    except Exception as exc:
+        log_ai_diary("collect_live_pois_failed", country=country, error=str(exc)[:100])
+        return []
+    
     pois: list[dict] = []
 
     for item in results:
