@@ -156,6 +156,7 @@ function getStyleDefinition(styleMode) {
   return {
     version: 8,
     name: `TripPilot ${requestedStyle.label}`,
+    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
     sources: requestedStyle.sources,
     layers: requestedStyle.layers,
     attribution: requestedStyle.attribution,
@@ -376,6 +377,7 @@ function restoreItineraryOverlayFromState() {
     source: MAP_ITINERARY_SOURCE_IDS.places,
     layout: {
       'text-field': ['concat', ['to-string', ['get', 'sequence']], '. ', ['get', 'name']],
+      'text-font': ['Open Sans Regular'],
       'text-size': 11,
       'text-anchor': 'top',
       'text-offset': [0, 1.1],
@@ -488,6 +490,7 @@ function renderMapNetwork(mapFeatures) {
     source: MAP_NETWORK_SOURCE_IDS.labels,
     layout: {
       'text-field': ['get', 'label'],
+      'text-font': ['Open Sans Regular'],
       'text-size': 11,
       'text-offset': [0, 0.75],
       'text-anchor': 'top',
@@ -1016,36 +1019,154 @@ async function buildClientSideTour(country) {
     `Country: ${country}. Keep each field brief, practical, and standardized.`,
   ].join(' ');
 
+  const openRouterResult = await requestOpenRouterTour(country, prompt);
+  if (openRouterResult) {
+    return openRouterResult;
+  }
+
   const fallbackModel = 'pollinations/text-default';
   const fallbackUrl = `https://text.pollinations.ai/${encodeURIComponent(prompt)}`;
-  const res = await fetch(fallbackUrl);
-  const raw = await res.text();
-
-  if (!res.ok) {
-    console.error('Client-side Pollinations fallback failed', { model: fallbackModel, status: res.status, bodyPreview: raw.slice(0, 300) });
-    throw new Error('Fallback AI request failed. Please try again.');
-  }
-
-  let parsed;
   try {
-    parsed = JSON.parse(raw);
+    const res = await fetch(fallbackUrl);
+    const raw = await res.text();
+
+    if (!res.ok) {
+      throw new Error(`Pollinations HTTP ${res.status}`);
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      const extracted = raw.match(/\{[\s\S]*\}/);
+      parsed = extracted ? JSON.parse(extracted[0]) : null;
+    }
+
+    if (parsed && Array.isArray(parsed.days)) {
+      return {
+        country,
+        days: parsed.days,
+        pois: [],
+        mapFeatures: null,
+        aiModel: fallbackModel,
+        aiDiary: [{ provider: 'pollinations', model: fallbackModel, status: 'success' }],
+        source: 'Pollinations AI (browser fallback)',
+      };
+    }
+  } catch (error) {
+    console.error('Client-side Pollinations fallback failed', { model: fallbackModel, error: error?.message || String(error) });
+  }
+
+  return buildGuaranteedLocalTour(country);
+}
+
+function readOpenRouterApiKey() {
+  const queryKey = new URLSearchParams(window.location.search).get('openrouter_api_key');
+  if (queryKey) {
+    localStorage.setItem('tripPilot.openrouterApiKey', queryKey.trim());
+    return queryKey.trim();
+  }
+
+  return (
+    localStorage.getItem('tripPilot.openrouterApiKey')
+    || window.OPENROUTER_API_KEY
+    || ''
+  ).trim();
+}
+
+function parseTourDays(rawContent) {
+  try {
+    const parsed = JSON.parse(rawContent);
+    if (Array.isArray(parsed?.days)) return parsed.days;
   } catch {
-    const extracted = raw.match(/\{[\s\S]*\}/);
-    parsed = extracted ? JSON.parse(extracted[0]) : null;
+    const extracted = rawContent.match(/\{[\s\S]*\}/);
+    if (!extracted) return null;
+    try {
+      const parsed = JSON.parse(extracted[0]);
+      if (Array.isArray(parsed?.days)) return parsed.days;
+    } catch {
+      return null;
+    }
   }
 
-  if (!parsed || !Array.isArray(parsed.days)) {
-    throw new Error('AI responded with an unexpected format. Please try again.');
-  }
+  return null;
+}
 
+async function requestOpenRouterTour(country, prompt) {
+  const apiKey = readOpenRouterApiKey();
+  if (!apiKey) return null;
+
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-4.1-nano',
+        temperature: 0.3,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a precise travel itinerary generator. Return strict JSON only with a top-level "days" array.',
+          },
+          { role: 'user', content: prompt },
+        ],
+      }),
+    });
+
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(payload?.error?.message || `OpenRouter HTTP ${res.status}`);
+    }
+
+    const content = payload?.choices?.[0]?.message?.content || '';
+    const days = parseTourDays(content);
+    if (!Array.isArray(days)) {
+      throw new Error('OpenRouter returned an invalid itinerary schema');
+    }
+
+    return {
+      country,
+      days,
+      pois: [],
+      mapFeatures: null,
+      aiModel: payload?.model || 'openai/gpt-4.1-nano',
+      aiDiary: [{ provider: 'openrouter', model: payload?.model || 'openai/gpt-4.1-nano', status: 'success' }],
+      source: 'OpenRouter AI (browser fallback)',
+    };
+  } catch (error) {
+    console.error('Client-side OpenRouter fallback failed', { error: error?.message || String(error) });
+    return null;
+  }
+}
+
+function buildGuaranteedLocalTour(country) {
+  const anchors = ['Historic Center', 'Main Market', 'National Museum', 'Scenic Viewpoint'];
   return {
     country,
-    days: parsed.days,
+    days: [
+      {
+        day: 1,
+        theme: `Discover ${country}`,
+        route: anchors.join(' → '),
+        locations: anchors.map((name) => ({
+          name,
+          summary: `Explore ${name} and enjoy local highlights.`,
+          history: `${name} is a notable stop in ${country}'s visitor circuit.`,
+          precautions: 'Keep valuables secure and monitor local advisories.',
+          bring: 'Comfortable shoes, water, and weather-appropriate clothing.',
+          lookOutFor: 'Crowded periods around midday.',
+          transportationMethod: 'Metro/Subway + Walking',
+        })),
+      },
+    ],
     pois: [],
     mapFeatures: null,
-    aiModel: fallbackModel,
-    aiDiary: [{ provider: 'pollinations', model: fallbackModel, status: 'success' }],
-    source: 'Pollinations AI (browser fallback)',
+    aiModel: 'tripilot/local-guaranteed-fallback',
+    aiDiary: [{ provider: 'tripilot', model: 'tripilot/local-guaranteed-fallback', status: 'success' }],
+    source: 'TripPilot local guaranteed fallback',
   };
 }
 
