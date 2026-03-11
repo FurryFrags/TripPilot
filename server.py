@@ -109,6 +109,54 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = "openai/gpt-4.1-nano"
 POLLINATIONS_MODEL = "pollinations/text-default"
 
+ITINERARY_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "days": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "day": {"type": "integer"},
+                    "theme": {"type": "string"},
+                    "route": {"type": "string"},
+                    "locations": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "summary": {"type": "string"},
+                                "history": {"type": "string"},
+                                "precautions": {"type": "string"},
+                                "bring": {"type": "string"},
+                                "lookOutFor": {"type": "string"},
+                                "transportationMethod": {"type": "string"},
+                            },
+                            "required": [
+                                "name",
+                                "summary",
+                                "history",
+                                "precautions",
+                                "bring",
+                                "lookOutFor",
+                                "transportationMethod",
+                            ],
+                            "additionalProperties": False,
+                        },
+                        "minItems": 1,
+                    },
+                },
+                "required": ["day", "theme", "route", "locations"],
+                "additionalProperties": False,
+            },
+            "minItems": 1,
+        }
+    },
+    "required": ["days"],
+    "additionalProperties": False,
+}
+
 TRANSPORT_KEYWORDS = {
     "Metro/Subway": ("metro", "subway", "underground", "tube"),
     "Rail/Train": ("rail", "train", "tram", "light rail"),
@@ -177,6 +225,24 @@ def log_ai_diary(event: str, **details: object) -> None:
     print(f"[AI_DIARY] {json.dumps(payload, ensure_ascii=False)}", flush=True)
 
 
+def extract_json_object(raw_text: str) -> dict:
+    text = raw_text.strip()
+    if not text:
+        raise ValueError("AI response is empty")
+
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if len(lines) >= 3 and lines[-1].strip() == "```":
+            text = "\n".join(lines[1:-1]).strip()
+            if text.lower().startswith("json"):
+                text = text[4:].strip()
+
+    parsed = json.loads(text)
+    if not isinstance(parsed, dict):
+        raise ValueError("AI response is not a JSON object")
+    return parsed
+
+
 def generate_ai_text(prompt: str) -> dict:
     diary: list[dict] = []
 
@@ -190,12 +256,21 @@ def generate_ai_text(prompt: str) -> dict:
                     "role": "system",
                     "content": (
                         "You are a precise travel itinerary generator. "
-                        "Always respond with valid JSON only and no markdown."
+                        "Return only strict JSON that matches the provided schema. "
+                        "Never include markdown, prose, or extra keys."
                     ),
                 },
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.3,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "trip_pilot_itinerary",
+                    "strict": True,
+                    "schema": ITINERARY_JSON_SCHEMA,
+                },
+            },
         }
         request = Request(
             OPENROUTER_API_URL,
@@ -561,7 +636,7 @@ def generate_tour_plan(country: str, pois: list[dict]) -> dict:
         )
         try:
             ai_response = generate_ai_text(prompt)
-            days = json.loads(ai_response["text"]).get("days", [])
+            days = extract_json_object(ai_response["text"]).get("days", [])
             if isinstance(days, list) and days:
                 return {"days": days, "aiDiary": ai_response.get("diary", []), "aiModel": ai_response.get("model", "")}
         except Exception:
@@ -590,7 +665,7 @@ def generate_tour_plan(country: str, pois: list[dict]) -> dict:
 
     try:
         ai_response = generate_ai_text(prompt)
-        days = json.loads(ai_response["text"]).get("days", [])
+        days = extract_json_object(ai_response["text"]).get("days", [])
         if isinstance(days, list) and days:
             for day in days:
                 for location in day.get("locations", []):
