@@ -93,6 +93,9 @@ let latestMapFeatures = null;
 let latestItineraryOverlay = null;
 let selectedCountries = new Set();
 
+const OPENROUTER_BROWSER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const OPENROUTER_BROWSER_MODEL = 'openai/gpt-4.1-nano';
+
 const COUNTRY_OPTIONS = [
   'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Argentina', 'Armenia', 'Australia', 'Austria', 'Azerbaijan',
   'Bahamas', 'Bahrain', 'Bangladesh', 'Barbados', 'Belarus', 'Belgium', 'Belize', 'Benin', 'Bhutan', 'Bolivia',
@@ -371,23 +374,25 @@ function restoreItineraryOverlayFromState() {
     },
   });
 
-  map.addLayer({
-    id: MAP_ITINERARY_LAYER_IDS.placeLabels,
-    type: 'symbol',
-    source: MAP_ITINERARY_SOURCE_IDS.places,
-    layout: {
-      'text-field': ['concat', ['to-string', ['get', 'sequence']], '. ', ['get', 'name']],
-      'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
-      'text-size': 11,
-      'text-anchor': 'top',
-      'text-offset': [0, 1.1],
-    },
-    paint: {
-      'text-color': '#0f172a',
-      'text-halo-color': '#ffffff',
-      'text-halo-width': 1.2,
-    },
-  });
+  if (map.getStyle()?.glyphs) {
+    map.addLayer({
+      id: MAP_ITINERARY_LAYER_IDS.placeLabels,
+      type: 'symbol',
+      source: MAP_ITINERARY_SOURCE_IDS.places,
+      layout: {
+        'text-field': ['concat', ['to-string', ['get', 'sequence']], '. ', ['get', 'name']],
+        'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
+        'text-size': 11,
+        'text-anchor': 'top',
+        'text-offset': [0, 1.1],
+      },
+      paint: {
+        'text-color': '#0f172a',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.2,
+      },
+    });
+  }
 
   if (routeCoordinates.length > 1) {
     map.addSource(MAP_ITINERARY_SOURCE_IDS.route, {
@@ -484,23 +489,25 @@ function renderMapNetwork(mapFeatures) {
   });
 
   map.addSource(MAP_NETWORK_SOURCE_IDS.labels, { type: 'geojson', data: labels });
-  map.addLayer({
-    id: MAP_NETWORK_LAYER_IDS.labels,
-    type: 'symbol',
-    source: MAP_NETWORK_SOURCE_IDS.labels,
-    layout: {
-      'text-field': ['get', 'label'],
-      'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
-      'text-size': 11,
-      'text-offset': [0, 0.75],
-      'text-anchor': 'top',
-    },
-    paint: {
-      'text-color': '#0f172a',
-      'text-halo-color': '#ffffff',
-      'text-halo-width': 1,
-    },
-  });
+  if (map.getStyle()?.glyphs) {
+    map.addLayer({
+      id: MAP_NETWORK_LAYER_IDS.labels,
+      type: 'symbol',
+      source: MAP_NETWORK_SOURCE_IDS.labels,
+      layout: {
+        'text-field': ['get', 'label'],
+        'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
+        'text-size': 11,
+        'text-offset': [0, 0.75],
+        'text-anchor': 'top',
+      },
+      paint: {
+        'text-color': '#0f172a',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1,
+      },
+    });
+  }
 }
 
 function normalizeLocation(location) {
@@ -701,19 +708,38 @@ function collectLocationNames(days, pois) {
   return [...locationNames];
 }
 
+function getApiBaseCandidates() {
+  const candidates = [];
+  const configured = (window.TRIPPILOT_API_BASE || localStorage.getItem('TRIPPILOT_API_BASE') || '').trim();
+
+  if (configured) {
+    candidates.push(configured.replace(/\/$/, ''));
+  }
+
+  const host = window.location.hostname;
+  const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(host);
+
+  if (isLocalHost) {
+    candidates.push('');
+    candidates.push(`http://${host}:8000`);
+  }
+
+  return [...new Set(candidates)];
+}
+
+function buildApiEndpoints(path, params) {
+  const query = params.toString();
+  const bases = getApiBaseCandidates();
+  if (!bases.length) return [];
+
+  return bases.map((base) => (base ? `${base}${path}?${query}` : `${path}?${query}`));
+}
+
 function getLocationImageEndpoints(country, locationNames) {
   const params = new URLSearchParams();
   params.set('country', country);
   locationNames.forEach((name) => params.append('location', name));
-
-  const endpoints = [`/api/location-images?${params.toString()}`];
-
-  if (window.location.protocol.startsWith('http')) {
-    const localApi = `${window.location.protocol}//${window.location.hostname}:8000/api/location-images?${params.toString()}`;
-    if (!endpoints.includes(localApi)) endpoints.push(localApi);
-  }
-
-  return endpoints;
+  return buildApiEndpoints('/api/location-images', params);
 }
 
 async function requestLocationImages(country, locationNames) {
@@ -749,15 +775,9 @@ async function requestLocationImages(country, locationNames) {
 }
 
 function getAiTourEndpoints(country) {
-  const query = `country=${encodeURIComponent(country)}`;
-  const endpoints = [`/api/ai-tour?${query}`];
-
-  if (window.location.protocol.startsWith('http')) {
-    const localApi = `${window.location.protocol}//${window.location.hostname}:8000/api/ai-tour?${query}`;
-    if (!endpoints.includes(localApi)) endpoints.push(localApi);
-  }
-
-  return endpoints;
+  const params = new URLSearchParams();
+  params.set('country', country);
+  return buildApiEndpoints('/api/ai-tour', params);
 }
 
 function logAiDiary(country, diaryEntries = [], sourceLabel = '') {
@@ -793,7 +813,9 @@ function logAiModelUsed(aiModel = '', diaryEntries = []) {
 }
 
 async function requestAiTour(country) {
-  for (const url of getAiTourEndpoints(country)) {
+  const endpoints = getAiTourEndpoints(country);
+
+  for (const url of endpoints) {
     try {
       const res = await fetch(url);
       const bodyText = await res.text();
@@ -824,7 +846,7 @@ async function requestAiTour(country) {
     }
   }
 
-  const fallbackTour = await buildClientSideTour(country);
+  const fallbackTour = await buildClientSideTour(country, endpoints);
   logAiModelUsed(fallbackTour.aiModel, fallbackTour.aiDiary || []);
   return fallbackTour;
 }
@@ -1012,45 +1034,111 @@ async function ensureMappablePois(country, days, pois = []) {
   return builtPois.length ? builtPois : normalizedProvidedPois;
 }
 
-async function buildClientSideTour(country) {
+function getOpenRouterBrowserKey() {
+  return (window.TRIPPILOT_OPENROUTER_API_KEY || localStorage.getItem('TRIPPILOT_OPENROUTER_API_KEY') || '').trim();
+}
+
+function extractJsonObjectFromText(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    const extracted = String(raw).match(/\{[\s\S]*\}/);
+    if (!extracted) return null;
+    try {
+      return JSON.parse(extracted[0]);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function buildStaticTour(country) {
+  return {
+    country,
+    days: [
+      {
+        day: 1,
+        theme: `Arrival and orientation in ${country}`,
+        route: `City center of ${country}`,
+        locations: [
+          {
+            name: `${country} Old Town`,
+            summary: 'Start with a walk to understand the city layout and landmarks.',
+            history: 'Historic district with architecture and local heritage.',
+            precautions: 'Keep valuables secure in crowded areas.',
+            bring: 'Comfortable shoes and water.',
+            lookOutFor: 'Opening hours and local cultural rules.',
+            transportationMethod: 'Walking + local transit',
+          },
+        ],
+      },
+    ],
+    pois: [],
+    mapFeatures: null,
+    aiModel: 'deterministic/local-fallback',
+    aiDiary: [{ provider: 'local', model: 'deterministic/local-fallback', status: 'success' }],
+    source: 'Local deterministic fallback',
+  };
+}
+
+async function buildClientSideTour(country, apiEndpoints = []) {
   const prompt = [
     'Output JSON only. No markdown, no commentary, no extra keys.',
     'Schema: {"days":[{"day":1,"theme":"...","route":"Location A → Location B","locations":[{"name":"...","summary":"...","history":"...","precautions":"...","bring":"...","lookOutFor":"...","transportationMethod":"..."}]}]}.',
     `Country: ${country}. Keep each field brief, practical, and standardized.`,
   ].join(' ');
 
-  const fallbackModel = 'pollinations/text-default';
-  const fallbackUrl = `https://text.pollinations.ai/${encodeURIComponent(prompt)}`;
-  const res = await fetch(fallbackUrl);
-  const raw = await res.text();
+  const openRouterKey = getOpenRouterBrowserKey();
+  if (openRouterKey) {
+    try {
+      const response = await fetch(OPENROUTER_BROWSER_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${openRouterKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: OPENROUTER_BROWSER_MODEL,
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a precise travel itinerary generator. Return strict JSON only and no markdown.',
+            },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.3,
+        }),
+      });
 
-  if (!res.ok) {
-    console.error('Client-side Pollinations fallback failed', { model: fallbackModel, status: res.status, bodyPreview: raw.slice(0, 300) });
-    throw new Error('Fallback AI request failed. Please try again.');
+      const payload = await response.json();
+      const content = payload?.choices?.[0]?.message?.content || '';
+      const parsed = extractJsonObjectFromText(content);
+      if (response.ok && Array.isArray(parsed?.days) && parsed.days.length) {
+        return {
+          country,
+          days: parsed.days,
+          pois: [],
+          mapFeatures: null,
+          aiModel: OPENROUTER_BROWSER_MODEL,
+          aiDiary: [{ provider: 'openrouter', model: OPENROUTER_BROWSER_MODEL, status: 'success' }],
+          source: 'OpenRouter AI (browser fallback)',
+        };
+      }
+
+      console.warn('OpenRouter browser fallback returned invalid payload', {
+        status: response.status,
+        apiEndpoints,
+      });
+    } catch (error) {
+      console.warn('OpenRouter browser fallback failed', { error: error?.message || String(error), apiEndpoints });
+    }
   }
 
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    const extracted = raw.match(/\{[\s\S]*\}/);
-    parsed = extracted ? JSON.parse(extracted[0]) : null;
-  }
-
-  if (!parsed || !Array.isArray(parsed.days)) {
-    throw new Error('AI responded with an unexpected format. Please try again.');
-  }
-
-  return {
-    country,
-    days: parsed.days,
-    pois: [],
-    mapFeatures: null,
-    aiModel: fallbackModel,
-    aiDiary: [{ provider: 'pollinations', model: fallbackModel, status: 'success' }],
-    source: 'Pollinations AI (browser fallback)',
-  };
+  return buildStaticTour(country);
 }
+
 
 async function initApp() {
   mapStyleSelect.disabled = true;
